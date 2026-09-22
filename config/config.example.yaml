@@ -1,0 +1,10 @@
+ffmpeg_path: "ffmpeg"
+music_directory: "./assets/music"
+default_duration: 15
+video_width: 1080
+video_height: 1920
+fps: 30
+ai_provider: "gemini"
+gemini_model: "gemini-1.5-flash"
+ollama_model: "llama3"
+output_directory: "./output"
