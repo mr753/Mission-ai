@@ -1,0 +1,28 @@
+{
+  "mission_id": "MISSION-2026-09-22",
+  "main_message": "Pesan utama mission hari ini",
+  "key_points": [
+    "Point pertama",
+    "Point kedua"
+  ],
+  "platforms": [
+    "instagram",
+    "facebook",
+    "threads",
+    "tiktok",
+    "youtube",
+    "x"
+  ],
+  "warming_instructions": "Instruksi warming",
+  "content_rules": [
+    "Gunakan informasi yang terlihat pada gambar",
+    "Jangan mengarang fakta"
+  ],
+  "amplification_reporting": "Instruksi amplifikasi dan reporting",
+  "deadline": "2026-09-22T23:59:59+09:00",
+  "max_hashtags": 5,
+  "required_hashtags": [
+    "#Example"
+  ],
+  "instructions": "Full mission instructions"
+}
