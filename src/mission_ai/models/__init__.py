@@ -46,3 +46,11 @@ class ContentPackage:
     status: JobStatus = JobStatus.PENDING
     video_path: Optional[str] = None
     error: Optional[str] = None
+
+@dataclass
+class ImageJob:
+    job_id: str
+    source_path: str
+    mission_context: MissionContext
+    status: JobStatus = JobStatus.PENDING
+    order: int = 0
