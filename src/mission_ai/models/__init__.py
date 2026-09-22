@@ -19,6 +19,7 @@ class MissionContext:
     platforms: List[str]
     max_hashtags: int
     required_hashtags: List[str] = field(default_factory=list)
+    image_source_url: Optional[str] = None
 
 @dataclass
 class ImageAnalysis:
