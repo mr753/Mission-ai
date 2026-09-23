@@ -21,14 +21,12 @@ def main():
 def _build_runner(progress):
     """Build a MissionRunner from the current configuration."""
     from mission_ai.runner import MissionRunner
-
     config = load_config()
     return MissionRunner(config, progress=progress)
 
 
 def _execute(mission: str, input: str, output: str):
-    """Shared run/resume execution. Resume and run are the same pipeline:
-    completed jobs are skipped via checkpoint state."""
+    """Shared run/resume execution."""
     runner = _build_runner(progress=lambda msg: click.echo(msg))
     summary = runner.run(mission, input, output)
     click.echo(summary.describe())
@@ -37,7 +35,7 @@ def _execute(mission: str, input: str, output: str):
 
 @main.command()
 @click.option('--mission', required=True, type=click.Path(exists=True), help='Path to mission file')
-@click.option('--input', required=True, type=click.Path(exists=True), help='Path to input images (dir, file, or manifest.json)')
+@click.option('--input', required=True, type=click.Path(exists=True), help='Path to input images')
 @click.option('--output', required=True, type=click.Path(), help='Path to output directory')
 def run(mission, input, output):
     """Run the mission processing pipeline."""
@@ -62,6 +60,22 @@ def resume(mission, input, output):
 
 
 @main.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Web server host")
+@click.option("--port", default=8000, show_default=True, type=int, help="Web server port")
+def web(host, port):
+    """Start the local Mission AI web dashboard."""
+    try:
+        import uvicorn
+        from mission_ai.web.app import create_app
+    except ImportError as e:
+        raise click.ClickException(
+            "Web dependencies are missing. Install with: pip install -e '.[web]'"
+        ) from e
+    click.echo(f"Mission AI web: http://{host}:{port}")
+    uvicorn.run(create_app(load_config()), host=host, port=port, log_level="info")
+
+
+@main.command()
 @click.option('--mission', required=True, type=click.Path(exists=True), help='Path to mission file')
 @click.option('--output', required=True, type=click.Path(), help='Path to output directory')
 def status(mission, output):
@@ -83,7 +97,6 @@ def status(mission, output):
         click.echo("Status: no output yet (not processed)")
         return
 
-    # Checkpoint state summary.
     counts = {}
     total = 0
     if checkpoint_file.exists():
@@ -100,7 +113,6 @@ def status(mission, output):
         if counts.get(status_name):
             click.echo(f"  {status_name}: {counts[status_name]}")
 
-    # Output artifacts.
     for sub in ("videos", "captions", "metadata"):
         d = mission_dir / sub
         n = len(list(d.glob("*"))) if d.exists() else 0
