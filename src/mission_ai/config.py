@@ -17,6 +17,9 @@ class AppConfig:
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3")
     output_directory: Path = Path(os.getenv("OUTPUT_DIR", "./output"))
+    supabase_url: Optional[str] = os.getenv("SUPABASE_URL")
+    supabase_key: Optional[str] = os.getenv("SUPABASE_KEY")
+    enable_supabase_sink: bool = os.getenv("ENABLE_SUPABASE_SINK", "false").lower() == "true"
 
 def load_config() -> AppConfig:
     return AppConfig()

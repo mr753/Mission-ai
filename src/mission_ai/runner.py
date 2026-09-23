@@ -69,6 +69,7 @@ class MissionRunner:
         provider=None,
         video_generator: Optional[Callable] = None,
         progress: Optional[Callable[[str], None]] = None,
+        state_sink=None,
     ):
         """`provider` and `video_generator` are injectable for testing;
         by default they are built from `config` (Gemini/Ollama) and the real
@@ -77,6 +78,8 @@ class MissionRunner:
         self._provider = provider
         self._video_generator = video_generator or image_to_video
         self._progress = progress or (lambda msg: print(msg))
+        from mission_ai.jobs.sink import create_state_sink
+        self.state_sink = state_sink or create_state_sink(self.config, self._progress)
 
     @property
     def provider(self):
@@ -91,10 +94,26 @@ class MissionRunner:
         mission: MissionContext = MissionParser.parse_json_file(mission_path)
         self._progress(f"Mission: {mission.main_message}")
 
+        # --- Sink Mission ---
+        try:
+            self.state_sink.sink_mission(mission)
+            self.state_sink.sink_event(mission.mission_id, "MISSION_STARTED", status="STARTED")
+        except Exception as e:
+            self._progress(f"StateSink error: {e}")
+
         # 2. Discover input images and build deterministic jobs.
         image_paths = self._discover_images(input_path)
         jobs = ImageJobBuilder().build(mission, image_paths)
         if not jobs:
+            try:
+                self.state_sink.sink_event(
+                    mission.mission_id,
+                    "MISSION_FAILED",
+                    status="FAILED",
+                    payload={"reason": f"No supported images found for input: {input_path}"}
+                )
+            except Exception as e:
+                self._progress(f"StateSink error: {e}")
             raise PipelineError(
                 f"No supported images found for input: {input_path} "
                 f"(supported extensions: {sorted(SUPPORTED_IMAGE_EXTS)})"
@@ -111,15 +130,64 @@ class MissionRunner:
             if checkpoint.is_completed(job.job_id):
                 summary.skipped += 1
                 self._progress(f"[{job.order + 1}/{len(jobs)}] SKIP {job.job_id} (already completed)")
+                try:
+                    self.state_sink.sink_job_status(
+                        job.job_id,
+                        mission.mission_id,
+                        str(job.source_path),
+                        job.order,
+                        JobStatus.COMPLETED
+                    )
+                    self.state_sink.sink_event(
+                        mission.mission_id,
+                        "JOB_SKIPPED",
+                        status="SKIPPED",
+                        job_id=job.job_id
+                    )
+                except Exception as e:
+                    self._progress(f"StateSink error: {e}")
                 continue
 
             checkpoint.update(job.job_id, JobStatus.PROCESSING)
             self._progress(f"[{job.order + 1}/{len(jobs)}] Processing {job.job_id}")
             try:
+                self.state_sink.sink_job_status(
+                    job.job_id,
+                    mission.mission_id,
+                    str(job.source_path),
+                    job.order,
+                    JobStatus.PROCESSING
+                )
+                self.state_sink.sink_event(
+                    mission.mission_id,
+                    "JOB_PROCESSING",
+                    status="PROCESSING",
+                    job_id=job.job_id
+                )
+            except Exception as e:
+                self._progress(f"StateSink error: {e}")
+
+            try:
                 self._process_job(mission, job, output_manager)
                 checkpoint.update(job.job_id, JobStatus.COMPLETED)
                 summary.completed += 1
                 self._progress(f"[{job.order + 1}/{len(jobs)}] COMPLETED {job.job_id}")
+                try:
+                    self.state_sink.sink_job_status(
+                        job.job_id,
+                        mission.mission_id,
+                        str(job.source_path),
+                        job.order,
+                        JobStatus.COMPLETED
+                    )
+                    self.state_sink.sink_event(
+                        mission.mission_id,
+                        "JOB_COMPLETED",
+                        status="COMPLETED",
+                        job_id=job.job_id
+                    )
+                except Exception as e:
+                    self._progress(f"StateSink error: {e}")
             except Exception as e:  # noqa: BLE001 - isolate any per-job failure
                 error = f"{type(e).__name__}: {e}"
                 checkpoint.update(job.job_id, JobStatus.FAILED)
@@ -130,6 +198,53 @@ class MissionRunner:
                 summary.failed += 1
                 summary.failed_job_ids.append(job.job_id)
                 self._progress(f"[{job.order + 1}/{len(jobs)}] FAILED {job.job_id}: {error}")
+                try:
+                    self.state_sink.sink_job_status(
+                        job.job_id,
+                        mission.mission_id,
+                        str(job.source_path),
+                        job.order,
+                        JobStatus.FAILED,
+                        last_error=error
+                    )
+                    self.state_sink.sink_event(
+                        mission.mission_id,
+                        "JOB_FAILED",
+                        status="FAILED",
+                        job_id=job.job_id,
+                        payload={"error": error}
+                    )
+                    # Sink fail output
+                    from mission_ai.models import ContentPackage
+                    pkg = ContentPackage(
+                        image_id=job.job_id,
+                        source_path=str(job.source_path),
+                        analysis=None,
+                        captions=[],
+                        status=JobStatus.FAILED,
+                        error=error
+                    )
+                    self.state_sink.sink_output(pkg)
+                except Exception as sink_err:
+                    self._progress(f"StateSink error: {sink_err}")
+
+        # --- Sink Mission End ---
+        try:
+            m_status = "COMPLETED" if summary.failed == 0 else "FAILED"
+            m_event = "MISSION_COMPLETED" if summary.failed == 0 else "MISSION_FAILED"
+            self.state_sink.sink_event(
+                mission.mission_id,
+                m_event,
+                status=m_status,
+                payload={
+                    "total_jobs": summary.total_jobs,
+                    "completed": summary.completed,
+                    "failed": summary.failed,
+                    "skipped": summary.skipped
+                }
+            )
+        except Exception as e:
+            self._progress(f"StateSink error: {e}")
 
         return summary
 
@@ -171,6 +286,10 @@ class MissionRunner:
             video_path=str(video_path),
         )
         output_manager.save_package(package)
+        try:
+            self.state_sink.sink_output(package)
+        except Exception as e:
+            self._progress(f"StateSink error: {e}")
 
     def _discover_images(self, input_path: str) -> List[Path]:
         path = Path(input_path)
