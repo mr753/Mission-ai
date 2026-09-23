@@ -1,9 +1,12 @@
 import os
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
 
 @dataclass
 class AppConfig:
@@ -20,6 +23,7 @@ class AppConfig:
     supabase_url: Optional[str] = os.getenv("SUPABASE_URL")
     supabase_key: Optional[str] = os.getenv("SUPABASE_KEY")
     enable_supabase_sink: bool = os.getenv("ENABLE_SUPABASE_SINK", "false").lower() == "true"
+
 
 def load_config() -> AppConfig:
     return AppConfig()
