@@ -1,0 +1,18 @@
+{
+  "mission_id": "INTEG-1",
+  "main_message": "Integration test mission",
+  "instructions": "Local integration test, no external services",
+  "key_points": [
+    "fixture point one",
+    "fixture point two"
+  ],
+  "platforms": [
+    "youtube",
+    "instagram"
+  ],
+  "max_hashtags": 4,
+  "required_hashtags": [
+    "#integ",
+    "#fixture"
+  ]
+}
