@@ -1,6 +1,13 @@
 from mission_ai.providers.base import AIProvider
+from mission_ai.providers.gemini import GeminiProvider
+from mission_ai.providers.ollama import OllamaProvider
 
-__all__ = ["AIProvider", "create_provider"]
+__all__ = [
+    "AIProvider",
+    "GeminiProvider",
+    "OllamaProvider",
+    "create_provider",
+]
 
 
 def create_provider(config) -> AIProvider:
