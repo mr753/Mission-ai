@@ -31,6 +31,10 @@ web = [
     "uvicorn[standard]>=0.30.0",
     "python-multipart>=0.0.9",
 ]
+drive = [
+    "google-auth>=2.0.0",
+    "requests>=2.20.0",
+]
 
 [project.scripts]
 mission-ai = "mission_ai.cli.main:main"

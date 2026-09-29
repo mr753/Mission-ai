@@ -35,7 +35,7 @@ def _execute(mission: str, input: str, output: str):
 
 @main.command()
 @click.option('--mission', required=True, type=click.Path(exists=True), help='Path to mission file')
-@click.option('--input', required=True, type=click.Path(exists=True), help='Path to input images')
+@click.option('--input', required=True, type=click.Path(), help='Path to input images, or a Google Drive folder URL')
 @click.option('--output', required=True, type=click.Path(), help='Path to output directory')
 def run(mission, input, output):
     """Run the mission processing pipeline."""
@@ -48,7 +48,7 @@ def run(mission, input, output):
 
 @main.command()
 @click.option('--mission', required=True, type=click.Path(exists=True), help='Path to mission file')
-@click.option('--input', required=True, type=click.Path(exists=True), help='Path to input images')
+@click.option('--input', required=True, type=click.Path(), help='Path to input images, or a Google Drive folder URL')
 @click.option('--output', required=True, type=click.Path(), help='Path to output directory')
 def resume(mission, input, output):
     """Resume previous processing (completed jobs are skipped)."""

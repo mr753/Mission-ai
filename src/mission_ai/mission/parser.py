@@ -51,6 +51,9 @@ class MissionParser:
         if not isinstance(data.get("required_hashtags", []), list):
             raise ValueError("required_hashtags must be a list")
         
+        # Optional image source URL (e.g., a Google Drive folder URL).
+        image_source_url = data.get("image_source_url") or None
+        
         return MissionContext(
             mission_id=str(data["mission_id"]),
             instructions=str(data.get("instructions", "")),
@@ -58,5 +61,6 @@ class MissionParser:
             key_points=data.get("key_points", []),
             platforms=data.get("platforms", []),
             max_hashtags=max_h,
-            required_hashtags=data.get("required_hashtags", [])
+            required_hashtags=data.get("required_hashtags", []),
+            image_source_url=str(image_source_url) if image_source_url else None,
         )

@@ -30,6 +30,11 @@ SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 DEFAULT_PLATFORM = "instagram"
 DEFAULT_MUSIC_MOOD = "default"
 
+def is_google_drive_url(path_like: str) -> bool:
+    """Return True if `path_like` is a Google Drive folder URL."""
+    return "drive.google.com" in path_like and "/folders/" in path_like
+
+
 CHECKPOINT_FILENAME = "checkpoint.json"
 
 
@@ -292,6 +297,15 @@ class MissionRunner:
             self._progress(f"StateSink error: {e}")
 
     def _discover_images(self, input_path: str) -> List[Path]:
+        # Google Drive folder URL: resolve (list + download) via the Drive API.
+        if is_google_drive_url(input_path):
+            from mission_ai.sources.google_drive import GoogleDriveFolderResolver
+            resolver = GoogleDriveFolderResolver(download_dir=self.config.output_directory / "_drive_downloads")
+            resolved = resolver.resolve(input_path)
+            if not resolved:
+                raise PipelineError(f"Google Drive source produced no usable images: {input_path}")
+            return sorted(resolved)
+
         path = Path(input_path)
         if not path.exists():
             raise PipelineError(f"Input path does not exist: {input_path}")
