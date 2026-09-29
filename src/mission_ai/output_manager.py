@@ -10,10 +10,12 @@ class OutputManager:
         self.videos_dir = self.base_dir / "videos"
         self.captions_dir = self.base_dir / "captions"
         self.metadata_dir = self.base_dir / "metadata"
+        self.voiceovers_dir = self.base_dir / "voiceovers"
 
         self.videos_dir.mkdir(parents=True, exist_ok=True)
         self.captions_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
+        self.voiceovers_dir.mkdir(parents=True, exist_ok=True)
 
     def save_package(self, package: ContentPackage):
         image_id = package.image_id
@@ -30,6 +32,12 @@ class OutputManager:
                 f.write(f"---{platform_content.platform}---\n")
                 f.write(f"{platform_content.caption}\n")
                 f.write(f"{', '.join(platform_content.hashtags)}\n\n")
+
+        # Save voice-over script
+        if package.voiceover_script:
+            vo_path = self.voiceovers_dir / f"{image_id}_voiceover.txt"
+            with open(vo_path, "w", encoding="utf-8") as f:
+                f.write(package.voiceover_script.script_text)
 
     def save_error(self, image_id: str, source_path: str, error: str):
         """Persist a minimal metadata record for a failed job so resume and

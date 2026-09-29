@@ -303,6 +303,9 @@ class FakeProvider:
         from mission_ai.models import PlatformContent
         return PlatformContent(platform=platform, caption=f"{platform}: {image_analysis.summary}", hashtags=[])
 
+    def generate_voiceover_script(self, image_analysis, mission_context):
+        return "voiceover script"
+
 
 def fake_video_gen(image_path, output_path, **kwargs):
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

@@ -20,6 +20,7 @@ from mission_ai.config import AppConfig
 from mission_ai.models import ContentPackage, ImageAnalysis, ImageJob, JobStatus, MissionContext, PlatformContent
 from mission_ai.caption_engine import generate_platform_content
 from mission_ai.image_analyzer import analyze_image
+from mission_ai.voiceover_engine import generate_voiceover_script
 from mission_ai.jobs.builder import ImageJobBuilder
 from mission_ai.jobs.checkpoint import CheckpointManager
 from mission_ai.music_selector import select_music
@@ -264,6 +265,9 @@ class MissionRunner:
             for platform in platforms
         ]
 
+        # Indonesian voice-over script generation (Phase 17).
+        voiceover_script = generate_voiceover_script(analysis, mission, self.provider, job.job_id)
+
         # Music (optional): generation still works without it.
         music = select_music(DEFAULT_MUSIC_MOOD, self.config.music_directory)
 
@@ -289,6 +293,7 @@ class MissionRunner:
             captions=captions,
             status=JobStatus.COMPLETED,
             video_path=str(video_path),
+            voiceover_script=voiceover_script,
         )
         output_manager.save_package(package)
         try:

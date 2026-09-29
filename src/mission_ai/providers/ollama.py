@@ -73,3 +73,36 @@ class OllamaProvider(AIProvider):
                 return data['response'].strip()
         except Exception as e:
             raise RuntimeError(f"Ollama provider failed: {e}")
+
+    def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
+        prompt = (
+            f"Buatkan script voice-over singkat dalam Bahasa Indonesia untuk konten sosial media berdasarkan informasi berikut:\n"
+            f"Pesan Utama Mission: {mission_context.main_message}\n"
+            f"Instruksi Mission: {mission_context.instructions}\n"
+            f"Analisis Visual Image: {image_analysis.summary} (Detail: {', '.join(image_analysis.relevant_details)})\n\n"
+            "Prinsip Penting:\n"
+            "1. Gunakan Bahasa Indonesia yang natural saat dibacakan oleh TTS.\n"
+            "2. Relevan dengan pesan utama mission dan detail visual image tersebut.\n"
+            "3. Jangan mengarang fakta visual yang tidak ada di analisis.\n"
+            "4. Jangan gunakan markdown, hashtag, caption format, atau instruksi teknis.\n"
+            "5. Singkat, padat, dan cocok untuk voice-over.\n"
+            "Keluarkan teks script saja."
+        )
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "stream": False
+        }
+        
+        req = urllib.request.Request(
+            f"{self.base_url}/api/generate",
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        try:
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                return data['response'].strip()
+        except Exception as e:
+            raise RuntimeError(f"Ollama provider failed: {e}")

@@ -151,6 +151,9 @@ class FakeProvider:
         self.captions.append((image_analysis.summary, platform))
         return f"{platform} caption"
 
+    def generate_voiceover_script(self, image_analysis, mission_context):
+        return f"Voice-over untuk {mission_context.main_message}"
+
 
 def fake_video_gen(image_path, output_path, **kwargs):
     Path(output_path).write_bytes(b"fake video")

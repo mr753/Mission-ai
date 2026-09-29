@@ -7,3 +7,6 @@ class AIProvider(Protocol):
 
     def generate_caption(self, image_analysis: ImageAnalysis, mission_context: MissionContext, platform: str) -> str:
         ...
+
+    def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
+        ...

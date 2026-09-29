@@ -29,6 +29,9 @@ class FakeProvider:
     def generate_caption(self, analysis, mission_context, platform):
         return f"{platform}: {analysis.summary}"
 
+    def generate_voiceover_script(self, image_analysis, mission_context):
+        return f"Voice-over untuk {mission_context.main_message}"
+
 
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="mission-ai-e2e-"))

@@ -38,6 +38,13 @@ class PlatformContent:
     description: Optional[str] = None
 
 @dataclass
+class VoiceOverScript:
+    image_id: str
+    script_text: str
+    language: str = "id"
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
 class ContentPackage:
     image_id: str
     source_path: str
@@ -46,6 +53,7 @@ class ContentPackage:
     status: JobStatus = JobStatus.PENDING
     video_path: Optional[str] = None
     error: Optional[str] = None
+    voiceover_script: Optional[VoiceOverScript] = None
 
 @dataclass
 class ImageJob:
@@ -60,6 +68,7 @@ __all__ = [
     "MissionContext",
     "ImageAnalysis",
     "PlatformContent",
+    "VoiceOverScript",
     "ContentPackage",
     "ImageJob",
 ]

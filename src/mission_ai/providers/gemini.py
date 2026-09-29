@@ -44,3 +44,24 @@ class GeminiProvider(AIProvider):
             contents=prompt
         )
         return response.text.strip()
+
+    def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
+        client = self._get_client()
+        prompt = (
+            f"Buatkan script voice-over singkat dalam Bahasa Indonesia untuk konten sosial media berdasarkan informasi berikut:\n"
+            f"Pesan Utama Mission: {mission_context.main_message}\n"
+            f"Instruksi Mission: {mission_context.instructions}\n"
+            f"Analisis Visual Image: {image_analysis.summary} (Detail: {', '.join(image_analysis.relevant_details)})\n\n"
+            "Prinsip Penting:\n"
+            "1. Gunakan Bahasa Indonesia yang natural saat dibacakan oleh TTS.\n"
+            "2. Relevan dengan pesan utama mission dan detail visual image tersebut.\n"
+            "3. Jangan mengarang fakta visual yang tidak ada di analisis.\n"
+            "4. Jangan gunakan markdown, hashtag, caption format, atau instruksi teknis.\n"
+            "5. Singkat, padat, dan cocok untuk voice-over.\n"
+            "Keluarkan teks script saja."
+        )
+        response = client.models.generate_content(
+            model=self.model_name,
+            contents=prompt
+        )
+        return response.text.strip()

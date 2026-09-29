@@ -107,6 +107,9 @@ class FakeProvider:
         self.captions.append((image_analysis.summary, platform))
         return f"{platform}: {image_analysis.summary} | {mission_context.main_message}"
 
+    def generate_voiceover_script(self, image_analysis, mission_context):
+        return f"Voice-over untuk {mission_context.main_message}"
+
 
 def write_mission(path: Path, mission_id: str = "E2E-1", max_hashtags: int = 4,
                   required: list = None, platforms: list = None) -> Path:
