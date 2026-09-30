@@ -106,12 +106,14 @@ def test_multi_image_produces_separate_audio_files(tmp_path):
     assert len(provider.synthesized_calls) == 3
 
 
-def test_tts_provider_mock_abstraction():
+def test_tts_provider_mock_abstraction(tmp_path):
     # Verify protocol compliance and mockability
     provider: TTSProvider = FakeTTSProvider()
     assert hasattr(provider, "synthesize")
-    res = provider.synthesize("Test", "dummy.wav")
-    assert res == "dummy.wav"
+    dummy_path = tmp_path / "dummy.wav"
+    res = provider.synthesize("Test", str(dummy_path))
+    assert res == str(dummy_path)
+    assert Path(res).exists()
 
 
 def test_no_ffmpeg_dependency_in_phase_18a(tmp_path):

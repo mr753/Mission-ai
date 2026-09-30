@@ -301,7 +301,10 @@ def test_e_real_ffmpeg_video_validated(tmp_path):
         assert stream["pix_fmt"] in {"yuv420p", "yuvj420p"}
         assert stream["width"] == 320 and stream["height"] == 480
         duration = float(probe_video(video)["format"]["duration"])
-        assert 0.9 <= duration <= 2.0  # ~1s requested
+        audio_file = base / "voiceovers" / f"{video.stem}.wav"
+        assert audio_file.exists(), f"missing voiceover audio for {video.stem}"
+        audio_duration = float(probe_video(audio_file)["format"]["duration"])
+        assert abs(duration - audio_duration) < 0.5  # video duration matches audio duration (-shortest)
         assert video.stat().st_size > 0
 
 
@@ -484,6 +487,8 @@ def test_i_pipeline_determinism_across_runs(tmp_path):
             meta = json.loads(mf.read_text())
             meta["video_path"] = Path(meta["video_path"]).name  # path prefix differs
             meta["source_path"] = Path(meta["source_path"]).name
+            if meta.get("voiceover_script") and meta["voiceover_script"].get("audio_path"):
+                meta["voiceover_script"]["audio_path"] = Path(meta["voiceover_script"]["audio_path"]).name
             metas[mf.name] = meta
         runs.append({
             "job_ids": sorted(metas.keys()),
