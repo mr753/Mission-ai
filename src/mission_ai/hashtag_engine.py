@@ -1,18 +1,39 @@
-from typing import List, Set
-from mission_ai.models import MissionContext
+import re
+from typing import List, Set, Any
+from mission_ai.models import MissionContext, ImageAnalysis
 
-def generate_hashtags(analysis: str, mission: MissionContext) -> List[str]:
-    # 1. Start with required hashtags
-    hashtags: Set[str] = set(mission.required_hashtags)
+def _normalize_tag(tag: str) -> str:
+    if not tag or not isinstance(tag, str):
+        return ""
+    tag = tag.strip()
+    if not tag:
+        return ""
+    if not tag.startswith("#"):
+        tag = "#" + tag
+    clean = re.sub(r'[^a-zA-Z0-9_]', '', tag[1:])
+    if not clean:
+        return ""
+    return "#" + clean
 
-    # 2. Extract potential hashtags from analysis (simple keyword mapping for Phase 1)
-    # 3. Add to set, keep size below mission.max_hashtags
-    
-    # Deterministic logic:
-    # Always include required, then fill with keywords up to max
-    
-    final_hashtags = list(hashtags)
-    # Sort for determinism
-    final_hashtags.sort()
-    
-    return final_hashtags[:mission.max_hashtags]
+def generate_hashtags(image_analysis: Any, mission: MissionContext) -> List[str]:
+    if isinstance(image_analysis, str):
+        image_analysis = ImageAnalysis(summary=image_analysis, visible_subjects=[], visual_context="", relevant_details=[])
+
+    seen_lower: Set[str] = set()
+    final_tags: List[str] = []
+
+    # 1. Required hashtags always preserved and normalized
+    for t in (mission.required_hashtags or []):
+        norm = _normalize_tag(t)
+        if norm and norm.lower() not in seen_lower:
+            seen_lower.add(norm.lower())
+            final_tags.append(norm)
+
+    # Sort for determinism (satisfies test_a_mission_loading)
+    final_tags.sort()
+
+    max_h = mission.max_hashtags
+    if max_h is None or max_h <= 0:
+        max_h = 10
+
+    return final_tags[:max_h]
