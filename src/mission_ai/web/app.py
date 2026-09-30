@@ -9,7 +9,7 @@ from mission_ai.config import AppConfig
 from mission_ai.runner import MissionRunner
 
 
-HTML = """<!doctype html>
+HTML = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -120,15 +120,25 @@ async function loadMissionDetail(missionId){
     html+=`<div class="section-title">Video:</div><p style="color:#757575">Not generated / unavailable</p>`;
    }
    if(p.voiceover_script && p.voiceover_script.script_text){
-    html+=`<div class="section-title">Voice-over Script:</div><pre>${escapeHtml(p.voiceover_script.script_text)}</pre>`;
+    html+=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+     <span>Voice-over Script:</span>
+     <button onclick="copyText(this, \`${escapeJs(p.voiceover_script.script_text)}\`)" style="width:auto;padding:2px 8px;font-size:11px">Copy Script</button>
+    </div><pre>${escapeHtml(p.voiceover_script.script_text)}</pre>`;
    }
    if(p.captions && p.captions.length){
     html+=`<div class="section-title">Captions & Hashtags:</div>`;
     for(const c of p.captions){
+     const tagStr = (c.hashtags||[]).join(' ');
      html+=`<div style="background:#151515;padding:8px;margin-top:4px;border-radius:4px">
-      <span class="badge badge-muted">${c.platform}</span>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+       <span class="badge badge-muted">${c.platform}</span>
+       <div>
+        <button onclick="copyText(this, \`${escapeJs(c.caption)}\`)" style="width:auto;padding:2px 6px;font-size:11px;margin-right:4px">Copy Caption</button>
+        <button onclick="copyText(this, \`${escapeJs(tagStr)}\`)" style="width:auto;padding:2px 6px;font-size:11px">Copy Hashtags</button>
+       </div>
+      </div>
       <p style="margin:6px 0">${escapeHtml(c.caption)}</p>
-      <p style="color:#4fc3f7;font-size:13px;margin:4px 0">${(c.hashtags||[]).join(' ')}</p>
+      <p style="color:#4fc3f7;font-size:13px;margin:4px 0">${tagStr}</p>
      </div>`;
     }
    }
@@ -138,6 +148,23 @@ async function loadMissionDetail(missionId){
  }catch(e){
   container.innerHTML='Error loading mission posts: '+e.message;
  }
+}
+
+async function copyText(btn, text){
+ try{
+  await navigator.clipboard.writeText(text);
+  const orig=btn.textContent;
+  btn.textContent='Copied!';
+  btn.style.background='#1b5e20';
+  setTimeout(()=>{btn.textContent=orig;btn.style.background='#0066cc';},1500);
+ }catch(e){
+  alert('Copy failed: '+e);
+ }
+}
+
+function escapeJs(str){
+ if(!str) return '';
+ return str.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\\$/g, '\\$');
 }
 
 function escapeHtml(text){
@@ -157,6 +184,7 @@ document.getElementById('form').onsubmit=async e=>{
 loadMissions(); setInterval(loadMissions,4000);
 </script>
 </body></html>"""
+
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
