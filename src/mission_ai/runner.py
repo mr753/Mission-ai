@@ -21,6 +21,7 @@ from mission_ai.models import ContentPackage, ImageAnalysis, ImageJob, JobStatus
 from mission_ai.caption_engine import generate_platform_content
 from mission_ai.image_analyzer import analyze_image
 from mission_ai.voiceover_engine import generate_voiceover_script
+from mission_ai.tts_engine import generate_audio_for_script
 from mission_ai.jobs.builder import ImageJobBuilder
 from mission_ai.jobs.checkpoint import CheckpointManager
 from mission_ai.music_selector import select_music
@@ -73,15 +74,17 @@ class MissionRunner:
         self,
         config: AppConfig,
         provider=None,
+        tts_provider=None,
         video_generator: Optional[Callable] = None,
         progress: Optional[Callable[[str], None]] = None,
         state_sink=None,
     ):
-        """`provider` and `video_generator` are injectable for testing;
-        by default they are built from `config` (Gemini/Ollama) and the real
+        """`provider`, `tts_provider`, and `video_generator` are injectable for testing;
+        by default they are built from `config` (Gemini/Ollama/PyTTSX3) and the real
         FFmpeg wrapper."""
         self.config = config
         self._provider = provider
+        self._tts_provider = tts_provider
         self._video_generator = video_generator or image_to_video
         self._progress = progress or (lambda msg: print(msg))
         from mission_ai.jobs.sink import create_state_sink
@@ -93,6 +96,13 @@ class MissionRunner:
             from mission_ai.providers import create_provider
             self._provider = create_provider(self.config)
         return self._provider
+
+    @property
+    def tts_provider(self):
+        if self._tts_provider is None:
+            from mission_ai.providers.pyttsx3 import PyTTSX3Provider
+            self._tts_provider = PyTTSX3Provider()
+        return self._tts_provider
 
     def run(self, mission_path: str, input_path: str, output_dir: str) -> RunSummary:
         # 1. Load and validate the mission.
@@ -268,10 +278,14 @@ class MissionRunner:
         # Indonesian voice-over script generation (Phase 17).
         voiceover_script = generate_voiceover_script(analysis, mission, self.provider, job.job_id)
 
-        # Music (optional): generation still works without it.
-        music = select_music(DEFAULT_MUSIC_MOOD, self.config.music_directory)
+        # TTS Audio generation (Phase 18A/18B).
+        audio_path = output_manager.voiceovers_dir / f"{job.job_id}.wav"
+        try:
+            generate_audio_for_script(voiceover_script, str(audio_path), self.tts_provider)
+        except Exception as e:
+            raise RuntimeError(f"TTS audio generation failed for {job.job_id}: {e}")
 
-        # Video generation with configured ffmpeg/dimension settings.
+        # Video generation with configured ffmpeg/dimension settings using TTS audio (Phase 18B).
         video_path = output_manager.videos_dir / f"{job.job_id}.mp4"
         ok = self._video_generator(
             job.source_path,
@@ -281,7 +295,7 @@ class MissionRunner:
             height=self.config.video_height,
             fps=self.config.fps,
             ffmpeg_path=self.config.ffmpeg_path,
-            music_path=str(music) if music else None,
+            audio_path=str(audio_path) if audio_path.exists() else None,
         )
         if not ok:
             raise RuntimeError("Video generation failed (see FFmpeg output)")

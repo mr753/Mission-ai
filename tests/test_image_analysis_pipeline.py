@@ -43,6 +43,9 @@ class MockAIProvider:
     def generate_caption(self, image_analysis: ImageAnalysis, mission_context: MissionContext, platform: str) -> str:
         return f"{platform} caption"
 
+    def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
+        return f"Voice-over untuk {mission_context.main_message}"
+
 
 @pytest.fixture
 def app_config(tmp_path):
@@ -75,9 +78,9 @@ def test_one_mission_one_image_analysis(app_config, sample_mission, tmp_path):
 
     provider = MockAIProvider()
     runner = MissionRunner(app_config, provider=provider, video_generator=lambda *a, **kw: True, progress=lambda m: None)
-    
+
     summary = runner.run(sample_mission, str(img), str(app_config.output_directory))
-    
+
     assert summary.total_jobs == 1
     assert summary.completed == 1
     assert len(provider.calls) == 1
@@ -98,9 +101,9 @@ def test_one_mission_many_images_independent_analyses(app_config, sample_mission
 
     provider = MockAIProvider()
     runner = MissionRunner(app_config, provider=provider, video_generator=lambda *a, **kw: True, progress=lambda m: None)
-    
+
     summary = runner.run(sample_mission, str(img_dir), str(app_config.output_directory))
-    
+
     assert summary.total_jobs == 3
     assert summary.completed == 3
     assert len(provider.calls) == 3
@@ -125,9 +128,9 @@ def test_failure_isolation_per_image(app_config, sample_mission, tmp_path):
     # Fail on img1, succeed on img2
     provider = MockAIProvider(fail_paths={str(img1)})
     runner = MissionRunner(app_config, provider=provider, video_generator=lambda *a, **kw: True, progress=lambda m: None)
-    
+
     summary = runner.run(sample_mission, str(img_dir), str(app_config.output_directory))
-    
+
     assert summary.total_jobs == 2
     assert summary.completed == 1
     assert summary.failed == 1

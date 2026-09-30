@@ -42,6 +42,7 @@ class VoiceOverScript:
     image_id: str
     script_text: str
     language: str = "id"
+    audio_path: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass

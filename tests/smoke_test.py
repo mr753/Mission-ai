@@ -15,10 +15,11 @@ from mission_ai.caption_engine import generate_platform_content
 class FakeProvider:
     def analyze_image(self, image_path, mission_context): return ImageAnalysis("sum", ["s"], "ctx", ["d"])
     def generate_caption(self, analysis, mission, platform): return "cap"
+    def generate_voiceover_script(self, analysis, mission): return "voiceover script"
 
 def test_smoke_workflow(tmp_path):
     mission = MissionContext(
-        mission_id="test-m1", instructions="do X", main_message="msg", 
+        mission_id="test-m1", instructions="do X", main_message="msg",
         key_points=["p1"], platforms=["ig"], max_hashtags=2, required_hashtags=["#req"]
     )
     img_path = tmp_path / "test.jpg"
@@ -42,8 +43,8 @@ def test_smoke_workflow(tmp_path):
     assert (out_manager.captions_dir / "01_caption.txt").exists()
 
 def test_hashtag_deduplication():
-    m = MissionContext(mission_id="m1", instructions="do X", main_message="msg", 
-                       key_points=["p1"], platforms=["ig"], max_hashtags=5, 
+    m = MissionContext(mission_id="m1", instructions="do X", main_message="msg",
+                       key_points=["p1"], platforms=["ig"], max_hashtags=5,
                        required_hashtags=["#req", "#req"])
     hashtags = generate_hashtags("analysis", m)
     assert len(hashtags) == 1
@@ -66,7 +67,7 @@ def test_gemini_provider_api_key_error():
                 provider._get_client()
 
 def test_youtube_title_generation():
-    m = MissionContext(mission_id="m1", instructions="do X", main_message="My Main Message", 
+    m = MissionContext(mission_id="m1", instructions="do X", main_message="My Main Message",
                        key_points=["p1"], platforms=["youtube"], max_hashtags=2)
     analysis = ImageAnalysis("Analysis Summary", ["s"], "ctx", ["d"])
     provider = FakeProvider()

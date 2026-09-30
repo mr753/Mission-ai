@@ -10,13 +10,17 @@ def image_to_video(
     fps: int = 30,
     ffmpeg_path: str = "ffmpeg",
     music_path: str = None,
+    audio_path: str = None,
 ) -> bool:
     """
-    Generate a video from a single image using FFmpeg subprocess.
-    If music_path is provided and exists, mix it as audio (looped to video length,
-    faded out at the end). Without music the video is generated silently.
+    Generate a video from a single static image and TTS audio/music using FFmpeg subprocess.
+    Video duration follows audio duration when audio_path or music_path is provided (via -shortest).
     """
     if not os.path.exists(image_path):
+        return False
+
+    effective_audio = audio_path or music_path
+    if effective_audio and not os.path.exists(effective_audio):
         return False
 
     # Ensure output directory exists
@@ -31,19 +35,18 @@ def image_to_video(
         "-i", image_path,
     ]
 
-    has_music = music_path is not None and os.path.exists(music_path)
-    if has_music:
-        cmd += ["-stream_loop", "-1", "-i", music_path]
+    has_audio = effective_audio is not None and os.path.exists(effective_audio)
+    if has_audio:
+        cmd += ["-i", effective_audio]
 
     cmd += [
         "-c:v", "libx264",
-        "-t", str(duration),
         "-pix_fmt", "yuv420p",
         "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
         "-r", str(fps),
     ]
 
-    if has_music:
+    if has_audio:
         cmd += [
             "-map", "0:v:0",
             "-map", "1:a:0",
@@ -51,9 +54,8 @@ def image_to_video(
             "-b:a", "128k",
             "-shortest",
         ]
-        # Fade the music out over the last second.
-        fade_start = max(0, duration - 1)
-        cmd += ["-af", f"afade=t=out:st={fade_start}:d=1"]
+    else:
+        cmd += ["-t", str(duration)]
 
     cmd += [output_path]
 
