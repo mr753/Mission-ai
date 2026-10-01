@@ -5,6 +5,6 @@ video_width: 1080
 video_height: 1920
 fps: 30
 ai_provider: "gemini"
-gemini_model: "gemini-1.5-flash"
+gemini_model: "gemini-3.8-flash"
 ollama_model: "llama3"
 output_directory: "./output"

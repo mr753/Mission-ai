@@ -57,11 +57,26 @@ def test_gemini_sdk_import():
 def test_gemini_provider_initialization():
     from mission_ai.providers.gemini import GeminiProvider
     provider = GeminiProvider()
+    assert provider.model_name == "gemini-3.8-flash"
+    custom_provider = GeminiProvider(model_name="gemini-2.5-flash")
+    assert custom_provider.model_name == "gemini-2.5-flash"
     with patch("google.genai.Client") as mock_client_cls:
         with patch.dict(os.environ, {"GEMINI_API_KEY": "fake-test-key"}):
             client = provider._get_client()
             mock_client_cls.assert_called_once_with(api_key="fake-test-key")
             assert client is not None
+
+def test_gemini_model_configuration_in_config_and_factory():
+    from mission_ai.config import AppConfig
+    from mission_ai.providers import create_provider
+    cfg = AppConfig()
+    assert cfg.gemini_model == "gemini-3.8-flash"
+    provider = create_provider(cfg)
+    assert provider.model_name == "gemini-3.8-flash"
+
+    cfg_custom = AppConfig(gemini_model="gemini-3.8-flash")
+    provider_custom = create_provider(cfg_custom)
+    assert provider_custom.model_name == "gemini-3.8-flash"
 
 def test_gemini_provider_api_key_error():
     from mission_ai.providers.gemini import GeminiProvider

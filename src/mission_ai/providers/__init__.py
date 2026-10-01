@@ -21,7 +21,7 @@ def create_provider(config) -> AIProvider:
 
     if name == "gemini":
         from mission_ai.providers.gemini import GeminiProvider
-        return GeminiProvider(model_name=getattr(config, "gemini_model", "gemini-1.5-flash"))
+        return GeminiProvider(model_name=getattr(config, "gemini_model", "gemini-3.8-flash"))
 
     if name == "ollama":
         from mission_ai.providers.ollama import OllamaProvider

@@ -17,7 +17,7 @@ class AppConfig:
     video_height: int = int(os.getenv("VIDEO_HEIGHT", 1920))
     fps: int = int(os.getenv("VIDEO_FPS", 30))
     ai_provider: str = os.getenv("AI_PROVIDER", "gemini")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3")
     output_directory: Path = Path(os.getenv("OUTPUT_DIR", "./output"))
     supabase_url: Optional[str] = os.getenv("SUPABASE_URL")
