@@ -1,12 +1,16 @@
 import json
+import logging
 import threading
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from mission_ai.config import AppConfig
 from mission_ai.runner import MissionRunner
+
+logger = logging.getLogger("mission_ai.web.app")
 
 
 HTML = r"""<!doctype html>
@@ -45,8 +49,10 @@ ul{margin:0;padding-left:20px}
 <div class="card" id="run">
 <h2>Run New Mission</h2>
 <form id="form">
-<label>Mission JSON <input type="file" name="mission" accept=".json" required></label>
-<label>Images <input type="file" name="images" accept=".jpg,.jpeg,.png,.webp" multiple required></label>
+<label>Mission Text
+<textarea name="mission_text" rows="8" placeholder="Paste the complete mission text here.
+The text should include the Google Drive source link." required style="width:100%;padding:10px;margin:6px 0;box-sizing:border-box;background:#2a2a2a;color:#fff;border:1px solid #444;border-radius:6px;font-family:inherit"></textarea>
+</label>
 <button type="submit">Start Processing</button>
 </form>
 <pre id="result" style="display:none"></pre>
@@ -209,7 +215,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not output_root.is_dir():
             return result
         for p in sorted(output_root.iterdir()):
-            if not p.is_dir() or p.name.startswith("."):
+            if not p.is_dir() or p.name.startswith(("_", ".")):
                 continue
             checkpoint = p / "checkpoint.json"
             state = {}
@@ -280,45 +286,91 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/missions")
     async def create_mission(
-        mission: UploadFile = File(...),
-        images: list[UploadFile] = File(...),
+        mission_text: Optional[str] = Form(None),
+        mission: Optional[UploadFile] = File(None),
+        images: Optional[list[UploadFile]] = File(None),
     ):
-        if not mission.filename or not mission.filename.lower().endswith(".json"):
-            raise HTTPException(400, "mission must be a JSON file")
-        if not images:
-            raise HTTPException(400, "at least one image is required")
-
-        raw = await mission.read()
-        try:
-            mission_data = json.loads(raw.decode("utf-8"))
-            mission_id = str(mission_data["mission_id"])
-        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
-            raise HTTPException(400, "invalid mission JSON")
-
-        job_root = upload_root / mission_id
-        image_root = job_root / "images"
-        image_root.mkdir(parents=True, exist_ok=True)
-        mission_path = job_root / "mission.json"
-        mission_path.write_bytes(raw)
-
-        for item in images:
-            if not item.filename:
-                continue
-            suffix = Path(item.filename).suffix.lower()
-            if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-                continue
-            (image_root / Path(item.filename).name).write_bytes(await item.read())
-
-        def worker():
+        if mission is None or not mission.filename:
+            if not mission_text or not mission_text.strip():
+                raise HTTPException(400, "Mission text is required.")
             try:
-                MissionRunner(config, progress=lambda _: None).run(
-                    str(mission_path), str(image_root), str(output_root)
-                )
-            except Exception:
-                pass
+                from mission_ai.mission.parser import MissionParser
+                mission_ctx = MissionParser.parse_mission_text(mission_text)
+            except ValueError as e:
+                msg = str(e)
+                if "required" in msg.lower():
+                    raise HTTPException(400, "Mission text is required.")
+                elif "no supported" in msg.lower():
+                    raise HTTPException(400, "No supported Google Drive link was found in the mission text.")
+                elif "invalid or unsupported" in msg.lower():
+                    raise HTTPException(400, "Google Drive link is invalid or unsupported.")
+                else:
+                    raise HTTPException(400, msg)
 
-        threading.Thread(target=worker, daemon=True).start()
-        return {"status": "started", "mission_id": mission_id}
+            mission_id = mission_ctx.mission_id
+            job_root = upload_root / mission_id
+            job_root.mkdir(parents=True, exist_ok=True)
+            mission_path = job_root / "mission.json"
+            mission_dict = {
+                "mission_id": mission_ctx.mission_id,
+                "instructions": mission_ctx.instructions,
+                "main_message": mission_ctx.main_message,
+                "key_points": mission_ctx.key_points,
+                "platforms": mission_ctx.platforms,
+                "max_hashtags": mission_ctx.max_hashtags,
+                "required_hashtags": mission_ctx.required_hashtags,
+                "image_source_url": mission_ctx.image_source_url,
+            }
+            mission_path.write_text(json.dumps(mission_dict, indent=2), encoding="utf-8")
+            input_source = mission_ctx.image_source_url
+
+            def worker():
+                try:
+                    MissionRunner(config, progress=lambda _: None).run(
+                        str(mission_path), str(input_source), str(output_root)
+                    )
+                except Exception as e:
+                    logger.error(f"MissionRunner processing failed for mission {mission_id}: {type(e).__name__}: {e}")
+
+            threading.Thread(target=worker, daemon=True).start()
+            return {"status": "started", "mission_id": mission_id}
+        else:
+            if not mission or not mission.filename or not mission.filename.lower().endswith(".json"):
+                raise HTTPException(400, "mission must be a JSON file")
+            if not images:
+                raise HTTPException(400, "at least one image is required")
+
+            raw = await mission.read()
+            try:
+                mission_data = json.loads(raw.decode("utf-8"))
+                mission_id = str(mission_data["mission_id"])
+            except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+                raise HTTPException(400, "invalid mission JSON")
+
+            job_root = upload_root / mission_id
+            image_root = job_root / "images"
+            image_root.mkdir(parents=True, exist_ok=True)
+            mission_path = job_root / "mission.json"
+            mission_path.write_bytes(raw)
+
+            for item in images:
+                if not item.filename:
+                    continue
+                suffix = Path(item.filename).suffix.lower()
+                if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+                    continue
+                (image_root / Path(item.filename).name).write_bytes(await item.read())
+
+            def worker():
+                try:
+                    MissionRunner(config, progress=lambda _: None).run(
+                        str(mission_path), str(image_root), str(output_root)
+                    )
+                except Exception as e:
+                    logger.error(f"MissionRunner processing failed for mission {mission_id}: {type(e).__name__}: {e}")
+
+            threading.Thread(target=worker, daemon=True).start()
+            return {"status": "started", "mission_id": mission_id}
 
     @app.get("/api/missions/{mission_id}/files")
     def files(mission_id: str):
