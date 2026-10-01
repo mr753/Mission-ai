@@ -36,8 +36,10 @@ def test_google_drive_invalid_url():
         resolver.resolve("https://example.com/folder")
 
 
-def test_google_drive_missing_auth():
-    resolver = GoogleDriveFolderResolver()
+def test_google_drive_missing_auth(monkeypatch):
+    monkeypatch.delenv("GOOGLE_DRIVE_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", raising=False)
+    resolver = GoogleDriveFolderResolver(credentials_path="", access_token="")
     with pytest.raises(ValueError, match="Google Drive authentication required"):
         resolver.resolve("https://drive.google.com/drive/folders/abc123")
 
