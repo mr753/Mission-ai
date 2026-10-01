@@ -50,19 +50,25 @@ def test_hashtag_deduplication():
     assert len(hashtags) == 1
     assert hashtags == ["#req"]
 
-def test_gemini_provider_import_error():
+def test_gemini_sdk_import():
+    import google.genai
+    assert google.genai is not None
+
+def test_gemini_provider_initialization():
     from mission_ai.providers.gemini import GeminiProvider
     provider = GeminiProvider()
-    with pytest.raises(ImportError, match="Gemini provider requires google-genai"):
-        provider._get_client()
+    with patch("google.genai.Client") as mock_client_cls:
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "fake-test-key"}):
+            client = provider._get_client()
+            mock_client_cls.assert_called_once_with(api_key="fake-test-key")
+            assert client is not None
 
 def test_gemini_provider_api_key_error():
     from mission_ai.providers.gemini import GeminiProvider
     provider = GeminiProvider()
-    # Mock the ImportError to bypass it
-    with patch.dict('sys.modules', {'google': MagicMock()}):
-        with pytest.MonkeyPatch.context() as m:
-            m.setenv("GEMINI_API_KEY", "")
+    with patch.dict(os.environ, {"GEMINI_API_KEY": ""}, clear=False):
+        # ensure GEMINI_API_KEY is empty/unset
+        with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="GEMINI_API_KEY not set"):
                 provider._get_client()
 
