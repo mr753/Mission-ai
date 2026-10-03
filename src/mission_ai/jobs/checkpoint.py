@@ -26,6 +26,7 @@ class CheckpointManager:
                 data = json.load(f)
             if isinstance(data, dict):
                 self.state = {str(k): str(v) for k, v in data.items()}
+                self._recover_processing_jobs()
             return
         except (json.JSONDecodeError, OSError):
             # Try the backup before giving up.
@@ -36,11 +37,24 @@ class CheckpointManager:
                         data = json.load(f)
                     if isinstance(data, dict):
                         self.state = {str(k): str(v) for k, v in data.items()}
+                        self._recover_processing_jobs()
                         return
                 except (json.JSONDecodeError, OSError):
                     pass
             # Reset to empty state so processing can continue.
             self.state = {}
+
+    def _recover_processing_jobs(self) -> None:
+        modified = False
+        for k, v in self.state.items():
+            if v == JobStatus.PROCESSING.value:
+                self.state[k] = JobStatus.PENDING.value
+                modified = True
+        if modified:
+            try:
+                self._write()
+            except OSError:
+                pass
 
     def update(self, image_id: str, status: JobStatus) -> None:
         self.state[image_id] = status.value

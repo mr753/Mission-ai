@@ -74,3 +74,17 @@ def test_video_generator_reports_missing_ffmpeg(tmp_path, monkeypatch):
         duration=1, ffmpeg_path="definitely-not-a-real-binary-xyz",
     )
     assert result is False
+
+
+def test_checkpoint_recovers_orphaned_processing_to_pending(tmp_path):
+    state_file = tmp_path / "state.json"
+    # Write a checkpoint state with a job stuck in PROCESSING
+    state_file.write_text(json.dumps({"job_orphaned": "PROCESSING", "job_done": "COMPLETED"}))
+
+    ckpt = CheckpointManager(state_file)
+    assert ckpt.status_of("job_orphaned") == JobStatus.PENDING
+    assert ckpt.is_completed("job_done")
+
+    # Verify disk was updated so subsequent loads also see PENDING
+    reloaded = CheckpointManager(state_file)
+    assert reloaded.status_of("job_orphaned") == JobStatus.PENDING
