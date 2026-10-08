@@ -322,3 +322,40 @@ class GoogleDriveFolderResolver:
             )
 
         return resolved_paths
+
+
+def authorize_user_drive(client_secrets_path: str, token_path: str) -> Path:
+    """Run the supported installed-app OAuth flow and save a reusable token.
+
+    Uses the desktop/loopback flow. Manual OOB copy/paste is intentionally not
+    used because Google no longer supports it.
+    """
+    try:
+        from google_auth_oauthlib.flow import InstalledAppFlow
+    except ImportError as e:
+        raise ImportError(
+            "Google Drive OAuth requires 'google-auth-oauthlib'. "
+            "Install with: pip install -e '.[drive]'"
+        ) from e
+
+    client_path = Path(client_secrets_path).expanduser()
+    target = Path(token_path).expanduser()
+
+    if not client_path.exists():
+        raise FileNotFoundError(f"OAuth client file not found: {client_path}")
+
+    flow = InstalledAppFlow.from_client_secrets_file(
+        str(client_path),
+        scopes=[GoogleDriveFolderResolver.DRIVE_SCOPE_READONLY],
+    )
+
+    print("Open the Google authorization URL shown below in your browser.")
+    print("After approval, return to Termux.")
+    credentials = flow.run_local_server(
+        host="127.0.0.1",
+        port=0,
+        open_browser=False,
+    )
+
+    GoogleDriveFolderResolver._write_secure_token_file(target, credentials.to_json())
+    return target
