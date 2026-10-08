@@ -35,6 +35,7 @@ web = [
 ]
 drive = [
     "google-auth>=2.0.0",
+    "google-auth-oauthlib>=1.0.0",
     "requests>=2.20.0",
 ]
 
