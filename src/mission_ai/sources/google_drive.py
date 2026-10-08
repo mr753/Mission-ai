@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import stat
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -70,31 +71,48 @@ class GoogleDriveFolderResolver:
             self._auth_mode = "service_account"
 
     def _load_user_oauth_credentials(self) -> bool:
-        """Load a previously-authorized Google user credential file, if present."""
+        """Load and refresh saved Google user OAuth credentials without google-auth."""
         token_path = Path(self.oauth_token_path).expanduser()
         if not token_path.exists():
             return False
 
         try:
-            from google.oauth2.credentials import Credentials
-            from google.auth.transport.requests import Request as GoogleAuthRequest
+            data = json.loads(token_path.read_text())
+            access_token = data.get("token") or data.get("access_token")
+            refresh_token = data.get("refresh_token")
+            token_uri = data.get("token_uri", "https://oauth2.googleapis.com/token")
+            client_id = data.get("client_id")
+            client_secret = data.get("client_secret")
+            expires_at = float(data.get("expires_at", 0) or 0)
 
-            credentials = Credentials.from_authorized_user_file(
-                str(token_path),
-                scopes=[self.DRIVE_SCOPE_READONLY],
-            )
-
-            if credentials.valid:
-                self._credentials = credentials
-                self._access_token = credentials.token
+            if access_token and expires_at > time.time() + 60:
+                self._access_token = access_token
                 logger.debug("Using saved Google user OAuth credentials")
                 return True
 
-            if credentials.expired and credentials.refresh_token:
-                credentials.refresh(GoogleAuthRequest())
-                self._credentials = credentials
-                self._access_token = credentials.token
-                self._write_secure_token_file(token_path, credentials.to_json())
+            if refresh_token and client_id:
+                payload = urllib.parse.urlencode({
+                    "client_id": client_id,
+                    "client_secret": client_secret or "",
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                }).encode("utf-8")
+                request = urllib.request.Request(
+                    token_uri,
+                    data=payload,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    refreshed = json.loads(response.read().decode("utf-8"))
+                new_token = refreshed.get("access_token")
+                if not new_token:
+                    raise RuntimeError("Google OAuth refresh did not return an access_token.")
+                expires_in = int(refreshed.get("expires_in", 3600))
+                data["token"] = new_token
+                data["expires_at"] = time.time() + expires_in
+                self._write_secure_token_file(token_path, json.dumps(data, indent=2))
+                self._access_token = new_token
                 logger.debug("Refreshed Google user OAuth credentials")
                 return True
         except Exception as exc:
@@ -480,6 +498,7 @@ def authorize_user_drive(client_secrets_path: str, token_path: str) -> Path:
         "client_id": client_id,
         "client_secret": client_secret,
         "scopes": [GoogleDriveFolderResolver.DRIVE_SCOPE_READONLY],
+        "expires_at": time.time() + int(token_data.get("expires_in", 3600)),
     }
     GoogleDriveFolderResolver._write_secure_token_file(
         target, json.dumps(credential_data, indent=2)
