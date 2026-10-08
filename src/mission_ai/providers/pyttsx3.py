@@ -13,19 +13,37 @@ class PyTTSX3Provider(TTSProvider):
         self.rate = rate
 
     def _synthesize_with_espeak(self, text: str, output_path: str) -> str:
-        """Use the Termux eSpeak CLI when pyttsx3 cannot access the eSpeak backend."""
+        """Synthesize speech with a slower Indonesian eSpeak voice and natural pauses."""
         espeak = shutil.which("espeak")
         if not espeak:
             raise RuntimeError("eSpeak executable not found. Install it with: pkg install espeak")
 
-        cmd = [espeak, "-w", output_path]
-        # pyttsx3 voice IDs are backend-specific, so only pass a voice when it
-        # looks like a native eSpeak voice name.
-        if self.voice_id and ":" not in self.voice_id and os.path.sep not in self.voice_id:
-            cmd[1:1] = ["-v", self.voice_id]
+        voice = self.voice_id
+        if not voice:
+            try:
+                voices = subprocess.run(
+                    [espeak, "--voices"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                ).stdout
+                if any(line.split()[-1] == "id" for line in voices.splitlines() if line.strip()):
+                    voice = "id"
+            except Exception:
+                voice = None
 
-        # eSpeak's speed is words/minute, matching pyttsx3's rate convention.
-        cmd[1:1] = ["-s", str(max(80, min(450, self.rate)))]
+        rate = max(100, min(180, self.rate or 125))
+        cmd = [
+            espeak,
+            "-w", output_path,
+            "-s", str(rate),
+            "-p", "45",
+            "-a", "160",
+            "-g", "8",
+            "-m",
+        ]
+        if voice and ":" not in voice and os.path.sep not in voice:
+            cmd[1:1] = ["-v", voice]
         cmd.append(text)
         completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
