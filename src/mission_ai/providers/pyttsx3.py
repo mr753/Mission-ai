@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 
@@ -13,7 +14,7 @@ class PyTTSX3Provider(TTSProvider):
         self.rate = rate
 
     def _synthesize_with_espeak(self, text: str, output_path: str) -> str:
-        """Synthesize speech with a slower Indonesian eSpeak voice and natural pauses."""
+        """Synthesize Indonesian speech with natural pacing and punctuation pauses."""
         espeak = shutil.which("espeak")
         if not espeak:
             raise RuntimeError("eSpeak executable not found. Install it with: pkg install espeak")
@@ -32,22 +33,27 @@ class PyTTSX3Provider(TTSProvider):
             except Exception:
                 voice = None
 
-        # Scale speaking rate to the script length so narration stays near 30-35 seconds.
-        # eSpeak uses words-per-minute; target about 32 seconds and keep the rate natural.
-        word_count = len(text.split())
-        rate = max(145, min(190, round(word_count * 60 / 30)))
+        # Keep a comfortable speaking rate. Duration follows the narration naturally;
+        # do not speed up or slow down the voice just to hit a fixed duration.
+        rate = 165
+
+        # Give sentence boundaries a short, explicit pause while preserving the
+        # punctuation-driven intonation eSpeak already applies.
+        speech_text = re.sub(r"([.!?])\s+", r"\1 <break time='260ms'/> ", text.strip())
+        speech_text = re.sub(r",\s+", ", <break time='120ms'/> ", speech_text)
+
         cmd = [
             espeak,
             "-w", output_path,
             "-s", str(rate),
-            "-p", "45",
+            "-p", "48",
             "-a", "160",
-            "-g", "8",
+            "-g", "5",
             "-m",
         ]
         if voice and ":" not in voice and os.path.sep not in voice:
             cmd[1:1] = ["-v", voice]
-        cmd.append(text)
+        cmd.append(speech_text)
         completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "unknown eSpeak error").strip()
