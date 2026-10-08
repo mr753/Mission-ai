@@ -32,7 +32,8 @@ class PyTTSX3Provider(TTSProvider):
             except Exception:
                 voice = None
 
-        # Keep narration near the requested ~30-second duration for 65-75 words.\n        rate = 130
+        # Keep narration near the requested ~30-second duration for 65-75 words.
+        rate = 130
         cmd = [
             espeak,
             "-w", output_path,
