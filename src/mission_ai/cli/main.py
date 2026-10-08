@@ -126,5 +126,38 @@ def status(mission, output):
         click.echo("Status: in progress or not started")
 
 
+@main.command("drive-auth")
+@click.option("--client", default=lambda: str(Path.home() / ".config" / "mission-ai" / "google-drive-client.json"), show_default=True)
+@click.option("--token", default=lambda: str(Path.home() / ".config" / "mission-ai" / "google-drive-token.json"), show_default=True)
+def drive_auth(client, token):
+    """Authorize Mission AI to read Drive folders available to your Google account."""
+    try:
+        from mission_ai.sources.google_drive import authorize_user_drive
+        target = authorize_user_drive(client, token)
+        click.echo(f"Google Drive authorization saved: {target}")
+    except (ImportError, FileNotFoundError, RuntimeError, OSError, ValueError) as e:
+        raise click.ClickException(str(e)) from e
+
+
+@main.command("drive-check")
+@click.argument("url")
+def drive_check(url):
+    """Check a mission Drive URL without running the full mission pipeline."""
+    try:
+        from mission_ai.sources.google_drive import GoogleDriveFolderResolver
+        resolver = GoogleDriveFolderResolver(
+            download_dir=Path(load_config().output_directory) / "_drive_check"
+        )
+        folder_id = resolver._extract_folder_id(url)
+        files = resolver._list_files_in_folder(folder_id)
+        images = [f for f in files if resolver._is_supported_image(f)]
+        click.echo("Drive access: OK")
+        click.echo(f"Folder ID: {folder_id}")
+        click.echo(f"Files found: {len(files)}")
+        click.echo(f"Supported images: {len(images)}")
+    except (ValueError, FileNotFoundError, RuntimeError, OSError) as e:
+        raise click.ClickException(str(e)) from e
+
+
 if __name__ == '__main__':
     main()
