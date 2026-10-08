@@ -101,8 +101,16 @@ class GeminiProvider(AIProvider):
 
         if not cleaned:
             raise ValueError("Gemini response is empty after removing markdown fences.")
-
         data = json.loads(cleaned)
+        # Gemini may return extra fields. Keep only the ImageAnalysis schema.
+        allowed = {"summary", "visible_subjects", "visual_context", "relevant_details", "confidence"}
+        data = {key: value for key, value in data.items() if key in allowed}
+        required = {"summary", "visible_subjects", "visual_context", "relevant_details"}
+        missing = required - data.keys()
+        if missing:
+            raise ValueError(
+                f"Gemini image analysis missing required fields: {sorted(missing)}"
+            )
         return ImageAnalysis(**data)
 
     def select_best_image(self, analyses, mission_context: MissionContext) -> int:
