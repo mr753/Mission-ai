@@ -311,3 +311,49 @@ def fake_video_gen(image_path, output_path, **kwargs):
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_bytes(b"fake video")
     return True
+
+
+# ---------------------------------------------------------------- public API-key auth ---
+
+def test_public_api_key_auth_builds_key_query():
+    resolver = GoogleDriveFolderResolver(
+        download_dir=Path("/tmp/drive"),
+        api_key="public-test-key",
+    )
+    assert resolver._auth_mode == "api_key"
+    assert resolver._get_auth_headers() == {}
+
+    captured = {}
+    with patch("urllib.request.Request") as mock_req_cls,             patch("urllib.request.urlopen") as mock_urlopen:
+
+        class _FakeResp:
+            def __enter__(self): return self
+            def __exit__(self, *exc): return False
+            def read(self): return b'{"files": []}'
+
+        mock_urlopen.return_value = _FakeResp()
+        mock_req_cls.side_effect = lambda url, **kwargs: captured.update({"url": url}) or MagicMock()
+
+        resolver._api_request("files", {"q": "'folder123' in parents"})
+
+    assert "key=public-test-key" in captured["url"]
+    assert "Authorization" not in mock_req_cls.call_args.kwargs["headers"]
+
+
+def test_auth_priority_prefers_user_token_over_service_account(monkeypatch, tmp_path):
+    token = tmp_path / "token.json"
+    token.write_text("{}")
+    monkeypatch.setenv("GOOGLE_DRIVE_OAUTH_TOKEN_FILE", str(token))
+    monkeypatch.setenv("GOOGLE_DRIVE_API_KEY", "public-key")
+    monkeypatch.setenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", str(tmp_path / "service.json"))
+
+    with patch("google.oauth2.credentials.Credentials.from_authorized_user_file") as load:
+        creds = MagicMock()
+        creds.valid = True
+        creds.token = "user-token"
+        load.return_value = creds
+
+        resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive")
+
+    assert resolver._auth_mode == "oauth"
+    assert resolver._access_token == "user-token"
