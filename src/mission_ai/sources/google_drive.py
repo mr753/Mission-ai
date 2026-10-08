@@ -345,8 +345,8 @@ def authorize_user_drive(client_secrets_path: str, token_path: str) -> Path:
         from google_auth_oauthlib.flow import InstalledAppFlow
     except ImportError as e:
         raise ImportError(
-            "Google Drive OAuth requires 'google-auth-oauthlib'. "
-            "Install with: pip install -e '.[drive]'"
+            "Google Drive OAuth dependency is unavailable in the active Python environment. "
+            "Verify with: python -c "import google_auth_oauthlib; print(google_auth_oauthlib.__file__)""
         ) from e
 
     client_path = Path(client_secrets_path).expanduser()
