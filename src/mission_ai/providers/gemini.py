@@ -101,7 +101,22 @@ class GeminiProvider(AIProvider):
 
         if not cleaned:
             raise ValueError("Gemini response is empty after removing markdown fences.")
-        data = json.loads(cleaned)
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            # Gemini can occasionally add prose around the JSON-only response.
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start < 0 or end <= start:
+                raise ValueError(
+                    f"Gemini image analysis did not return valid JSON: {cleaned[:300]!r}"
+                ) from exc
+            try:
+                data = json.loads(cleaned[start:end + 1])
+            except json.JSONDecodeError:
+                raise ValueError(
+                    f"Gemini image analysis returned malformed JSON: {cleaned[:300]!r}"
+                ) from exc
         # Gemini may return extra fields. Keep only the ImageAnalysis schema.
         allowed = {"summary", "visible_subjects", "visual_context", "relevant_details", "confidence"}
         data = {key: value for key, value in data.items() if key in allowed}
