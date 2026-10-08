@@ -47,16 +47,32 @@ class GeminiProvider(AIProvider):
         return any(kw in err_str for kw in transient_keywords)
 
     def _call_with_retry(self, func, *args, **kwargs):
+        # Gemini can temporarily return 503/429 during demand spikes.
+        # Retry the primary model, then try a fallback model before failing.
         max_attempts = 3
-        base_delay = 1.0
-        for attempt in range(max_attempts):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                if attempt == max_attempts - 1 or not self._is_transient_error(e):
-                    raise
-                delay = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
-                time.sleep(delay)
+        base_delay = 2.0
+        primary_model = kwargs.get("model", self.model_name)
+        fallback_model = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash")
+
+        for model in (primary_model, fallback_model):
+            if not model:
+                continue
+            for attempt in range(max_attempts):
+                try:
+                    call_kwargs = dict(kwargs)
+                    call_kwargs["model"] = model
+                    return func(*args, **call_kwargs)
+                except Exception as e:
+                    if not self._is_transient_error(e):
+                        raise
+                    if attempt == max_attempts - 1:
+                        break
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.25)
+                    time.sleep(delay)
+
+        raise RuntimeError(
+            f"Gemini models unavailable after retries: {primary_model} and {fallback_model}"
+        )
 
     def analyze_image(self, image_path: str, mission_context: MissionContext) -> ImageAnalysis:
         client = self._get_client()
