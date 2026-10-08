@@ -63,9 +63,9 @@ The text should include the Google Drive source link." required style="width:100
 <div id="missions-list">Loading missions...</div>
 </div>
 
-<div class="card" id="mission-detail-card" style="display:none">
-<h2 id="detail-title">Mission Details</h2>
-<div id="posts-container"></div>
+<div class="card" id="mission-detail-card">
+<h2 id="detail-title">Mission Output</h2>
+<div id="posts-container"><p>Loading mission output...</p></div>
 </div>
 
 <script>
@@ -89,6 +89,11 @@ async function loadMissions(){
   }
   html+='</div>';
   container.innerHTML=html;
+  // Show the first mission's output immediately so users do not need
+  // to discover the clickable card on mobile.
+  if(missions.length === 1){
+   loadMissionDetail(missions[0].mission_id);
+  }
  }catch(e){
   document.getElementById('missions-list').textContent='Error loading missions: '+e.message;
  }
@@ -96,14 +101,14 @@ async function loadMissions(){
 
 async function loadMissionDetail(missionId){
  document.getElementById('mission-detail-card').style.display='block';
- document.getElementById('detail-title').textContent='Mission: '+missionId;
+ document.getElementById('detail-title').textContent='Mission Output: '+missionId;
  const container=document.getElementById('posts-container');
  container.innerHTML='Loading posts...';
  try{
   const res=await fetch(`/api/missions/${missionId}/posts`);
   const data=await res.json();
   if(!data.posts || !data.posts.length){
-   container.innerHTML='<p>No posts/jobs found for this mission.</p>';
+   container.innerHTML='<p>No output is available for this mission yet.</p>';
    return;
   }
   let html='';
