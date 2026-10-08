@@ -234,9 +234,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         state = {}
                 except (OSError, ValueError):
                     state = {}
+            # The current UI is output-oriented: after candidate selection,
+            # only jobs with a generated content package represent usable output.
+            # This prevents stale FAILED candidate attempts from previous runs
+            # from appearing as the current mission result.
             counts = {}
-            for value in state.values():
-                counts[value] = counts.get(value, 0) + 1
+            metadata_dir = p / "metadata"
+            if metadata_dir.is_dir():
+                for meta_file in metadata_dir.glob("*.json"):
+                    try:
+                        data = json.loads(meta_file.read_text(encoding="utf-8"))
+                        status = data.get("status")
+                        if status:
+                            counts[status] = counts.get(status, 0) + 1
+                    except (OSError, ValueError):
+                        pass
+            if not counts:
+                for value in state.values():
+                    counts[value] = counts.get(value, 0) + 1
             result.append({"mission_id": p.name, "jobs": counts})
         return result
 
@@ -294,6 +309,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "status": job_status,
                     "error": "Job recorded in checkpoint without content package metadata."
                 })
+
+        # Once usable output exists, show only the current completed package.
+        # Older failed candidate attempts are not useful in the Output view.
+        completed_posts = [post for post in posts if post.get("status") == "COMPLETED"]
+        if completed_posts:
+            posts = completed_posts
 
         return {"mission_id": mission_id, "posts": posts}
 
