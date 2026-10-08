@@ -35,7 +35,7 @@ class PyTTSX3Provider(TTSProvider):
         # Scale speaking rate to the script length so narration stays near 30-35 seconds.
         # eSpeak uses words-per-minute; target about 32 seconds and keep the rate natural.
         word_count = len(text.split())
-        rate = max(120, min(180, round(word_count * 60 / 32)))
+        rate = max(145, min(190, round(word_count * 60 / 30)))
         cmd = [
             espeak,
             "-w", output_path,
