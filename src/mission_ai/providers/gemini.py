@@ -46,12 +46,22 @@ class GeminiProvider(AIProvider):
         ]
         return any(kw in err_str for kw in transient_keywords)
 
+    def _is_quota_error(self, e: Exception) -> bool:
+        """Identify exhausted API quota so the next model can be tried immediately."""
+        err_str = str(e).lower()
+        quota_markers = (
+            "quota exceeded",
+            "generate_content_free_tier_requests",
+            "generaterequestsperdayperprojectpermodelfreetier",
+            "exceeded your current quota",
+        )
+        return any(marker in err_str for marker in quota_markers)
     def _call_with_retry(self, func, *args, **kwargs):
         """Call Gemini with quota-aware model failover and bounded retries."""
         primary_model = kwargs.get("model", self.model_name)
         configured = os.getenv(
             "GEMINI_FALLBACK_MODELS",
-            "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-2.5-flash-lite",
+            "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash-lite",
         )
         fallback_models = [m.strip() for m in configured.split(",") if m.strip()]
         models = []
