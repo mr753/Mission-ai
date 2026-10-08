@@ -141,7 +141,15 @@ class MissionRunner:
 
         summary = RunSummary(mission_id=mission.mission_id, total_jobs=len(jobs))
 
-        # 3. Process each job; failures are isolated.
+        # 3. Analyze all candidates and select one best image when supported.
+        if hasattr(self.provider, "select_best_image") and len(jobs) > 1:
+            analyses = [(job.source_path, analyze_image(job.source_path, mission, self.provider)) for job in jobs]
+            selected_index = self.provider.select_best_image(analyses, mission)
+            selected_job = jobs[selected_index]
+            jobs = [selected_job]
+            self._progress(f"Selected image: {selected_job.source_path.name} ({selected_index + 1} of {len(analyses)})")
+
+        # 4. Process the selected job.
         for job in jobs:
             if checkpoint.is_completed(job.job_id):
                 summary.skipped += 1
