@@ -336,19 +336,19 @@ class GoogleDriveFolderResolver:
 
 
 def authorize_user_drive(client_secrets_path: str, token_path: str) -> Path:
-    """Run the supported installed-app OAuth flow and save a reusable token.
+    """Authorize Google Drive using a standard-library OAuth loopback flow.
 
-    Uses the desktop/loopback flow. Manual OOB copy/paste is intentionally not
-    used because Google no longer supports it.
+    This intentionally avoids google-auth-oauthlib/cryptography so the OAuth
+    bootstrap also works on Android/Termux Python builds.
     """
-    try:
-        from google_auth_oauthlib.flow import InstalledAppFlow
-    except Exception as e:
-        raise RuntimeError(
-            "Google Drive OAuth dependency could not be imported. "
-            f"Cause: {type(e).__name__}: {e}. "
-            "Verify with: python -c 'import google_auth_oauthlib; print(google_auth_oauthlib.__file__)'"
-        ) from e
+    import base64
+    import hashlib
+    import secrets
+    import threading
+    import time
+    import urllib.parse
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, HTTPServer
 
     client_path = Path(client_secrets_path).expanduser()
     target = Path(token_path).expanduser()
@@ -356,18 +356,133 @@ def authorize_user_drive(client_secrets_path: str, token_path: str) -> Path:
     if not client_path.exists():
         raise FileNotFoundError(f"OAuth client file not found: {client_path}")
 
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(client_path),
-        scopes=[GoogleDriveFolderResolver.DRIVE_SCOPE_READONLY],
-    )
+    try:
+        client_data = json.loads(client_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise ValueError(f"Invalid OAuth client file at {client_path}: {e}") from e
 
-    print("Open the Google authorization URL shown below in your browser.")
+    config = client_data.get("installed") or client_data.get("web")
+    if not isinstance(config, dict):
+        raise ValueError("OAuth client JSON must contain an 'installed' or 'web' configuration.")
+
+    client_id = config.get("client_id")
+    client_secret = config.get("client_secret")
+    auth_uri = config.get("auth_uri", "https://accounts.google.com/o/oauth2/v2/auth")
+    token_uri = config.get("token_uri", "https://oauth2.googleapis.com/token")
+    if not client_id:
+        raise ValueError("OAuth client JSON is missing client_id.")
+    if not client_secret:
+        raise ValueError("OAuth client JSON is missing client_secret.")
+
+    state = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode("ascii")).digest()
+    ).rstrip(b"=").decode("ascii")
+
+    result: dict = {}
+    ready = threading.Event()
+
+    class CallbackHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if query.get("state", [None])[0] != state:
+                result["error"] = "OAuth state validation failed."
+            elif query.get("error", [None])[0]:
+                result["error"] = query["error"][0]
+            elif query.get("code", [None])[0]:
+                result["code"] = query["code"][0]
+            else:
+                result["error"] = "OAuth callback did not contain an authorization code."
+
+            body = b"Mission AI authorization received. You can return to Termux."
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            ready.set()
+
+        def log_message(self, format, *args):
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), CallbackHandler)
+    redirect_uri = f"http://127.0.0.1:{server.server_port}/"
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": GoogleDriveFolderResolver.DRIVE_SCOPE_READONLY,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    }
+    auth_url = auth_uri + "?" + urllib.parse.urlencode(params)
+
+    print("Open this Google authorization URL in your browser:")
+    print(auth_url)
     print("After approval, return to Termux.")
-    credentials = flow.run_local_server(
-        host="127.0.0.1",
-        port=0,
-        open_browser=False,
-    )
+    if not ready.wait(timeout=300):
+        server.server_close()
+        raise RuntimeError("Google OAuth authorization timed out after 5 minutes.")
 
-    GoogleDriveFolderResolver._write_secure_token_file(target, credentials.to_json())
+    server.server_close()
+    if result.get("error"):
+        raise RuntimeError(f"Google OAuth authorization failed: {result['error']}")
+
+    code = result.get("code")
+    if not code:
+        raise RuntimeError("Google OAuth authorization did not return a code.")
+
+    token_payload = urllib.parse.urlencode(
+        {
+            "code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+            "code_verifier": verifier,
+        }
+    ).encode("utf-8")
+
+    request = urllib.request.Request(
+        token_uri,
+        data=token_payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            token_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            details = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            details = "unknown error"
+        raise RuntimeError(f"Google OAuth token exchange failed: HTTP {e.code}: {details}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Google OAuth token exchange connection failed: {e.reason}") from e
+
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+    if not access_token:
+        raise RuntimeError("Google OAuth token response did not contain an access_token.")
+
+    credential_data = {
+        "token": access_token,
+        "refresh_token": refresh_token,
+        "token_uri": token_uri,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scopes": [GoogleDriveFolderResolver.DRIVE_SCOPE_READONLY],
+    }
+    GoogleDriveFolderResolver._write_secure_token_file(
+        target, json.dumps(credential_data, indent=2)
+    )
     return target
+
