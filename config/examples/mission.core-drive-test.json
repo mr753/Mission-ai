@@ -1,0 +1,24 @@
+{
+  "mission_id": "MISSION-CORE-DRIVE-TEST",
+  "main_message": "Buat konten singkat yang menarik dan positif berdasarkan gambar terbaik yang tersedia di folder Google Drive.",
+  "key_points": [
+    "Periksa semua gambar yang tersedia di Google Drive.",
+    "Pilih satu gambar yang paling sesuai dengan tema misi.",
+    "Buat voice-over singkat yang menjelaskan isi gambar dan relevansinya dengan tema.",
+    "Gunakan gambar sebagai gambar statis untuk video MP4."
+  ],
+  "platforms": [
+    "instagram"
+  ],
+  "warming_instructions": "",
+  "content_rules": [
+    "Gunakan informasi yang terlihat pada gambar.",
+    "Jangan mengarang fakta.",
+    "Video harus menggunakan gambar statis tanpa animasi."
+  ],
+  "amplification_reporting": "",
+  "deadline": "2026-12-31T23:59:59+09:00",
+  "max_hashtags": 5,
+  "required_hashtags": [],
+  "instructions": "Baca dan pahami misi. Periksa semua gambar dari Google Drive. Pilih satu gambar yang paling sesuai. Buat voice-over atau narasi singkat berdasarkan gambar dan tema. Buat video MP4 menggunakan gambar tersebut sebagai gambar statis dan voice-over sebagai audio. Buat caption dan hashtag yang relevan. Semua hasil harus tersedia di Output/Mission Dashboard untuk digunakan dalam upload manual."
+}
