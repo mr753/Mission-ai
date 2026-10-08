@@ -221,7 +221,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             state = {}
             if checkpoint.exists():
                 try:
-                    state = json.loads(checkpoint.read_text()).get("state", {})
+                    checkpoint_data = json.loads(checkpoint.read_text())
+                    # CheckpointManager stores the job map directly. Also accept
+                    # the older wrapped {"state": {...}} format for compatibility.
+                    state = checkpoint_data.get("state", checkpoint_data) if isinstance(checkpoint_data, dict) else {}
+                    if not isinstance(state, dict):
+                        state = {}
                 except (OSError, ValueError):
                     state = {}
             counts = {}
@@ -254,7 +259,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         state = {}
         if checkpoint.exists():
             try:
-                state = json.loads(checkpoint.read_text()).get("state", {})
+                checkpoint_data = json.loads(checkpoint.read_text())
+                state = checkpoint_data.get("state", checkpoint_data) if isinstance(checkpoint_data, dict) else {}
+                if not isinstance(state, dict):
+                    state = {}
             except (OSError, ValueError):
                 pass
 
