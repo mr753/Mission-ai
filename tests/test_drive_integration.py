@@ -357,3 +357,14 @@ def test_auth_priority_prefers_user_token_over_service_account(monkeypatch, tmp_
 
     assert resolver._auth_mode == "oauth"
     assert resolver._access_token == "user-token"
+
+
+def test_resolve_preserves_drive_resource_key(tmp_path):
+    resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "downloads", access_token="tok")
+    url = DRIVE_URL + "?usp=sharing&resourcekey=resource123"
+
+    with patch.object(resolver, "_list_files_in_folder", return_value=[]):
+        with pytest.raises(RuntimeError, match="No supported images"):
+            resolver.resolve(url)
+
+    assert resolver._resource_key_header == "test123/resource123"
