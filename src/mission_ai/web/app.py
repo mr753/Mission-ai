@@ -91,7 +91,7 @@ async function loadMissions(){
   container.innerHTML=html;
   // Show the first mission's output immediately so users do not need
   // to discover the clickable card on mobile.
-  if(missions.length === 1){
+  if(missions.length === 1 && !document.getElementById('mission-detail-card').dataset.loaded){
    loadMissionDetail(missions[0].mission_id);
   }
  }catch(e){
@@ -100,7 +100,9 @@ async function loadMissions(){
 }
 
 async function loadMissionDetail(missionId){
- document.getElementById('mission-detail-card').style.display='block';
+ const detailCard=document.getElementById('mission-detail-card');
+ detailCard.style.display='block';
+ detailCard.dataset.loaded='true';
  document.getElementById('detail-title').textContent='Mission Output: '+missionId;
  const container=document.getElementById('posts-container');
  container.innerHTML='Loading posts...';
