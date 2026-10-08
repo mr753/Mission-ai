@@ -32,7 +32,9 @@ class FallbackProvider:
         return self._call("generate_voiceover_script", image_analysis, mission_context)
 
     def select_best_image(self, analyses, mission_context):
-        return self._call("select_best_image", analyses, mission_context)
+        if not hasattr(self.fallback, "select_best_image"):
+            raise RuntimeError("No AI provider supports image selection")
+        return self.fallback.select_best_image(analyses, mission_context)
 
 def create_provider(config) -> AIProvider:
     name = (getattr(config, "ai_provider", "") or "").strip().lower()
