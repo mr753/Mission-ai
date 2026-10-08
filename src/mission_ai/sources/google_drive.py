@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, List, Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 MASKED = "***MASKED***"
 
@@ -54,6 +54,7 @@ class GoogleDriveFolderResolver:
         self._access_token: Optional[str] = None
         self._credentials: Optional[Any] = None
         self._auth_mode: Optional[str] = None
+        self._resource_key_header: Optional[str] = None
 
         # User OAuth is the primary path because mission folders may be private
         # but already shared with the operator's Google account.
@@ -211,6 +212,8 @@ class GoogleDriveFolderResolver:
             url += "?" + urlencode(query_params, doseq=True)
 
         headers = self._get_auth_headers()
+        if self._resource_key_header:
+            headers["X-Goog-Drive-Resource-Keys"] = self._resource_key_header
         headers["Accept"] = "application/json"
         req = urllib.request.Request(url, headers=headers)
 
@@ -261,6 +264,12 @@ class GoogleDriveFolderResolver:
             "image/webp",
         }
 
+    def _download_headers(self) -> dict:
+        headers = self._get_auth_headers()
+        if self._resource_key_header:
+            headers["X-Goog-Drive-Resource-Keys"] = self._resource_key_header
+        return headers
+
     def _download_file(self, file: dict) -> Path:
         """Download an image using the same auth mode used for folder discovery."""
         file_id = file.get("id")
@@ -283,7 +292,7 @@ class GoogleDriveFolderResolver:
 
         req = urllib.request.Request(
             download_url + "?" + urlencode(query),
-            headers=self._get_auth_headers(),
+            headers=self._download_headers(),
         )
 
         try:
@@ -300,6 +309,8 @@ class GoogleDriveFolderResolver:
     def resolve(self, url: str) -> List[Path]:
         """Resolve a mission-provided Google Drive folder URL to local images."""
         folder_id = self._extract_folder_id(url)
+        resource_key = parse_qs(urlparse(url).query).get("resourcekey", [None])[0]
+        self._resource_key_header = f"{folder_id}/{resource_key}" if resource_key else None
         files = self._list_files_in_folder(folder_id)
 
         resolved_paths: List[Path] = []
