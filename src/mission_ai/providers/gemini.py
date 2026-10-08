@@ -120,15 +120,11 @@ class GeminiProvider(AIProvider):
             start = cleaned.find("{")
             end = cleaned.rfind("}")
             if start < 0 or end <= start:
-                raise ValueError(
-                    f"Gemini image analysis did not return valid JSON: {cleaned[:300]!r}"
-                ) from exc
+                raise exc
             try:
                 data = json.loads(cleaned[start:end + 1])
             except json.JSONDecodeError:
-                raise ValueError(
-                    f"Gemini image analysis returned malformed JSON: {cleaned[:300]!r}"
-                ) from exc
+                raise
         # Gemini may return extra fields. Keep only the ImageAnalysis schema.
         allowed = {"summary", "visible_subjects", "visual_context", "relevant_details", "confidence"}
         data = {key: value for key, value in data.items() if key in allowed}
