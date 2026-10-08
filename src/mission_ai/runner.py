@@ -142,10 +142,12 @@ class MissionRunner:
         summary = RunSummary(mission_id=mission.mission_id, total_jobs=len(jobs))
 
         # 3. Analyze all candidates and select one best image when supported.
+        selected_analysis = None
         if hasattr(self.provider, "select_best_image") and len(jobs) > 1:
             analyses = [(job.source_path, analyze_image(job.source_path, mission, self.provider)) for job in jobs]
             selected_index = self.provider.select_best_image(analyses, mission)
             selected_job = jobs[selected_index]
+            selected_analysis = analyses[selected_index][1]
             jobs = [selected_job]
             selected_source_path = Path(selected_job.source_path)
             self._progress(f"Selected image: {selected_source_path.name} ({selected_index + 1} of {len(analyses)})")
@@ -193,7 +195,7 @@ class MissionRunner:
                 self._progress(f"StateSink error: {e}")
 
             try:
-                self._process_job(mission, job, output_manager)
+                self._process_job(mission, job, output_manager, analysis=selected_analysis)
                 checkpoint.update(job.job_id, JobStatus.COMPLETED)
                 summary.completed += 1
                 self._progress(f"[{job.order + 1}/{len(jobs)}] COMPLETED {job.job_id}")
@@ -273,9 +275,16 @@ class MissionRunner:
 
         return summary
 
-    def _process_job(self, mission: MissionContext, job: ImageJob, output_manager: OutputManager) -> None:
-        # Analysis via the configured AI provider.
-        analysis: ImageAnalysis = analyze_image(job.source_path, mission, self.provider)
+    def _process_job(
+        self,
+        mission: MissionContext,
+        job: ImageJob,
+        output_manager: OutputManager,
+        analysis: Optional[ImageAnalysis] = None,
+    ) -> None:
+        # Reuse the analysis already performed during Drive candidate selection.
+        # This avoids an unnecessary Gemini request for the selected image.
+        analysis = analysis or analyze_image(job.source_path, mission, self.provider)
 
         # Platform-specific captions (+ hashtags via the caption engine).
         platforms = mission.platforms or [DEFAULT_PLATFORM]
