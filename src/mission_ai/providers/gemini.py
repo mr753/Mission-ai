@@ -47,33 +47,45 @@ class GeminiProvider(AIProvider):
         return any(kw in err_str for kw in transient_keywords)
 
     def _call_with_retry(self, func, *args, **kwargs):
-        # Gemini can temporarily return 503/429 during demand spikes.
-        # Retry the primary model, then try a fallback model before failing.
-        max_attempts = 3
-        base_delay = 2.0
+        """Call Gemini with quota-aware model failover and bounded retries."""
         primary_model = kwargs.get("model", self.model_name)
-        fallback_model = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash")
+        configured = os.getenv(
+            "GEMINI_FALLBACK_MODELS",
+            "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-2.5-flash-lite",
+        )
+        fallback_models = [m.strip() for m in configured.split(",") if m.strip()]
+        models = []
+        for model in [primary_model, *fallback_models]:
+            if model and model not in models:
+                models.append(model)
 
-        for model in (primary_model, fallback_model):
-            if not model:
-                continue
+        max_attempts = max(1, int(os.getenv("GEMINI_RETRY_ATTEMPTS", "2")))
+        base_delay = float(os.getenv("GEMINI_RETRY_BASE_DELAY", "2"))
+        last_error = None
+        for model in models:
             for attempt in range(max_attempts):
                 try:
                     call_kwargs = dict(kwargs)
                     call_kwargs["model"] = model
-                    return func(*args, **call_kwargs)
+                    response = func(*args, **call_kwargs)
+                    if model != primary_model:
+                        print(f"Gemini failover: using {model}")
+                    return response
                 except Exception as e:
+                    last_error = e
+                    if self._is_quota_error(e):
+                        break
                     if not self._is_transient_error(e):
                         raise
                     if attempt == max_attempts - 1:
                         break
                     delay = base_delay * (2 ** attempt) + random.uniform(0, 0.25)
                     time.sleep(delay)
-
         raise RuntimeError(
-            f"Gemini models unavailable after retries: {primary_model} and {fallback_model}"
-        )
-
+            "Gemini request failed across models: "
+            + ", ".join(models)
+            + f". Last error: {last_error}"
+        ) from last_error
     def analyze_image(self, image_path: str, mission_context: MissionContext) -> ImageAnalysis:
         client = self._get_client()
         image = Image.open(image_path)
@@ -148,7 +160,21 @@ class GeminiProvider(AIProvider):
             lines = text.splitlines()[1:]
             if lines and lines[-1].strip() == "```": lines = lines[:-1]
             text = "\n".join(lines).strip()
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start < 0 or end <= start:
+                raise ValueError(
+                    f"Gemini image selection did not return valid JSON: {text[:300]!r}"
+                ) from exc
+            try:
+                data = json.loads(text[start:end + 1])
+            except json.JSONDecodeError:
+                raise ValueError(
+                    f"Gemini image selection returned malformed JSON: {text[:300]!r}"
+                ) from exc
         index = int(data["selected_index"])
         if index < 0 or index >= len(analyses): raise ValueError(f"Gemini selected invalid image index: {index}")
         return index
