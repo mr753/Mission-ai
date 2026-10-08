@@ -89,6 +89,31 @@ class GeminiProvider(AIProvider):
         data = json.loads(cleaned)
         return ImageAnalysis(**data)
 
+    def select_best_image(self, analyses, mission_context: MissionContext) -> int:
+        """Select the best candidate index for the mission."""
+        client = self._get_client()
+        candidates = []
+        for index, (path, analysis) in enumerate(analyses):
+            candidates.append({"index": index, "file": os.path.basename(str(path)), "summary": analysis.summary, "visible_subjects": analysis.visible_subjects, "visual_context": analysis.visual_context, "relevant_details": analysis.relevant_details})
+        prompt = (
+            "Pilih SATU gambar terbaik untuk mission berdasarkan hanya fakta visual. "
+            "Nilai relevansi terhadap tema, kejelasan subjek, dan kecocokan konten. "
+            "Kembalikan JSON valid dengan key selected_index (integer).\n"
+            f"Mission: {mission_context.main_message}\n"
+            f"Instruksi: {mission_context.instructions}\n"
+            f"Kandidat: {json.dumps(candidates, ensure_ascii=False)}"
+        )
+        response = self._call_with_retry(client.models.generate_content, model=self.model_name, contents=prompt)
+        text = (response.text or "").strip()
+        if text.startswith("```"):
+            lines = text.splitlines()[1:]
+            if lines and lines[-1].strip() == "```": lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        data = json.loads(text)
+        index = int(data["selected_index"])
+        if index < 0 or index >= len(analyses): raise ValueError(f"Gemini selected invalid image index: {index}")
+        return index
+
     def generate_caption(self, image_analysis: ImageAnalysis, mission_context: MissionContext, platform: str) -> str:
         client = self._get_client()
         prompt = (f"Generate a {platform} caption grounded in this analysis: {image_analysis.summary}. "
