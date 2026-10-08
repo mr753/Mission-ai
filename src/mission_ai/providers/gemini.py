@@ -201,10 +201,10 @@ class GeminiProvider(AIProvider):
         prompt = (
             "Buat script voice-over sosial media dalam Bahasa Indonesia yang terdengar seperti "
             "seseorang benar-benar sedang berbicara kepada penonton.\n\n"
-            f"Pesan utama mission: {mission_context.main_message}\n"
-            f"Instruksi mission: {mission_context.instructions}\n"
-            f"Analisis visual gambar: {image_analysis.summary}\n"
-            f"Detail visual: {', '.join(image_analysis.relevant_details)}\n\n"
+            f"TUJUAN MISSION (bukan sumber fakta): {mission_context.main_message}\n"
+            f"INSTRUKSI MISSION (bukan sumber fakta): {mission_context.instructions}\n"
+            f"SUMBER FAKTA VISUAL: {image_analysis.summary}\n"
+            f"Detail visual yang terdeteksi: {', '.join(image_analysis.relevant_details)}\n\n"
             "ATURAN UTAMA:\n"
             "1. Tulis untuk DIDENGARKAN, bukan untuk dibaca seperti artikel atau laporan.\n"
             "2. Gunakan bahasa percakapan Indonesia yang sederhana, luwes, dan natural.\n"
@@ -221,15 +221,7 @@ class GeminiProvider(AIProvider):
             "12. Jangan menyalin instruksi mission menjadi kalimat voice-over.\n"
             "13. Jangan gunakan markdown, hashtag, emoji, judul, atau catatan produksi.\n"
             "14. Panjang sekitar 55-80 kata. Tidak perlu mengejar durasi tertentu; kualitas dan kelancaran bicara lebih penting.\n"
-            "15. Gunakan hanya informasi yang benar-benar didukung oleh mission atau fakta visual yang jelas. Jangan gunakan detail visual sekadar untuk membuat script terdengar lengkap.\n"
-            "16. Bedakan fakta yang terlihat dari interpretasi. Jangan mengubah dugaan visual menjadi fakta, misalnya menyebut gambar sebagai acara, forum, diskusi, poster, laporan, pembicara, atau program tertentu kecuali sumber menyatakannya secara eksplisit.\n"
-            "17. Jangan menambahkan jumlah, daftar, hubungan sebab-akibat, hasil, proses, lokasi, nama, atau contoh spesifik yang tidak disebutkan dalam mission atau sumber visual.\n"
-            "18. Jika mission memiliki konteks utama yang tidak terlihat pada gambar, gunakan konteks mission secara hati-hati dan jangan mengklaim bahwa gambar membuktikannya.\n"
-            "19. Jangan mengisi kekosongan informasi dengan tebakan. Lebih baik membuat script sedikit lebih sederhana tetapi seluruh isinya dapat dipertanggungjawabkan.\n\n"
-            "Sebelum menulis, tentukan dulu fakta mana yang didukung langsung oleh mission dan fakta visual mana yang benar-benar jelas. "
-            "Buang detail yang hanya berupa interpretasi atau dugaan. Gunakan konteks mission untuk menjelaskan tujuan narasi, bukan untuk menciptakan fakta baru. "
-            "Jika informasi yang tersedia terbatas, tetap tulis narasi yang natural dan ringkas tanpa mengarang detail untuk mengisi kekosongan.\n\n"
-            "Keluarkan hanya script voice-over final."
+            "15. SUMBER FAKTA hanya dua: fakta visual yang jelas dari analisis gambar dan fakta yang secara eksplisit tertulis dalam mission. Tujuan atau instruksi mission bukan bukti fakta.\n"\n            "16. Jangan mengubah interpretasi visual menjadi fakta. Jangan menyebut gambar sebagai acara, forum, diskusi, poster, laporan, pembicara, program, kebijakan, proses operasional, atau kegiatan tertentu kecuali hal itu tertulis jelas dalam sumber.\n"\n            "17. Jangan membuat atau menyimpulkan mekanisme, kebijakan, dampak, hasil, hubungan sebab-akibat, keterlibatan pihak, daftar, jumlah, atau contoh spesifik yang tidak tertulis jelas dalam sumber.\n"\n            "18. Jangan memakai frasa yang memiliki makna faktual seperti program ini, kebijakan ini, cara operasionalnya, keterlibatan langsung, pengadaan regional, membuka ruang, atau sudah berjalan kecuali sumber secara eksplisit mendukungnya.\n"\n            "19. Jangan mengisi kekosongan informasi. Jika fakta yang tersedia sedikit, buat narasi sederhana berdasarkan fakta yang ada. Jangan menambahkan isi hanya agar script mencapai 55-80 kata.\n"\n            "20. Sebelum menulis setiap kalimat, cek apakah kalimat ini dapat ditunjuk kembali ke sumber. Jika tidak, hapus atau ubah menjadi pernyataan yang benar-benar didukung sumber.\n\n"            "Sebelum menulis, pisahkan dengan tegas TUJUAN MISSION dari SUMBER FAKTA. Gunakan tujuan mission hanya untuk menentukan arah narasi. "\n            "Gunakan fakta visual dan fakta yang tertulis eksplisit sebagai isi narasi. Buang semua interpretasi, dugaan, dan kesimpulan yang tidak dapat ditelusuri ke sumber. "\n            "Jika sumber hanya mendukung beberapa fakta, gunakan hanya fakta tersebut dan akhiri secara natural tanpa menambah klaim baru.\n\n"            "Keluarkan hanya script voice-over final."
         )
         response = self._call_with_retry(
             client.models.generate_content,
