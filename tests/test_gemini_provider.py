@@ -237,27 +237,68 @@ def test_web_research_failure_does_not_crash_pipeline(monkeypatch, mission_ctx):
     assert provider.generate_voiceover_script(analysis, mission_ctx) == response.text
 
 
-def test_web_search_parser_extracts_title_snippet_and_url(monkeypatch):
-    from io import BytesIO
+def test_google_news_rss_parser_extracts_research_context(monkeypatch):
     import urllib.request
 
-    html = b'''
-    <div class="result">
-      <a class="result__a" href="https://example.test/news">Berita MBG <span>dan produk lokal</span></a>
-      <a class="result__snippet" href="https://example.test/news">Koperasi desa didorong terhubung dengan petani lokal.</a>
-    </div>
-    '''
+    xml_data = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <rss><channel>
+      <item>
+        <title>Koperasi desa dan UMKM lokal - Contoh Berita</title>
+        <link>https://news.google.com/rss/articles/example?oc=5</link>
+        <description>&lt;p&gt;Koperasi desa didorong terhubung dengan petani lokal.&lt;/p&gt;</description>
+        <source url="https://example.test">Contoh Berita</source>
+        <pubDate>Fri, 09 Oct 2026 07:00:00 GMT</pubDate>
+      </item>
+      <item>
+        <title>Program pangan daerah</title>
+        <link>https://news.google.com/rss/articles/example2?oc=5</link>
+        <description>Informasi kedua.</description>
+        <source>Media Kedua</source>
+      </item>
+    </channel></rss>"""
+
     class FakeResponse:
         def __enter__(self):
             return self
+
         def __exit__(self, *args):
             return False
+
         def read(self, limit):
-            return html
+            return xml_data
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: FakeResponse())
     provider = GeminiProvider()
-    result = provider._search_web_context("MBG produk lokal")
-    assert "Berita MBG dan produk lokal" in result
-    assert "Koperasi desa didorong terhubung" in result
-    assert "https://example.test/news" in result
+    result = provider._search_web_context("koperasi desa UMKM")
+
+    assert "Koperasi desa dan UMKM lokal - Contoh Berita" in result
+    assert "Sumber: Contoh Berita" in result
+    assert "Koperasi desa didorong dengan petani lokal" not in result  # parser must preserve exact source text
+    assert "Koperasi desa didorong terhubung dengan petani lokal." in result
+    assert "Tanggal: Fri, 09 Oct 2026" in result
+    assert "https://news.google.com/rss/articles/example?oc=5" in result
+    assert "Program pangan daerah" in result
+
+
+def test_google_news_rss_parser_respects_max_results(monkeypatch):
+    import urllib.request
+
+    xml_data = b"""<rss><channel>
+      <item><title>Berita satu</title><link>https://example.test/1</link></item>
+      <item><title>Berita dua</title><link>https://example.test/2</link></item>
+    </channel></rss>"""
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit):
+            return xml_data
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: FakeResponse())
+    result = GeminiProvider()._search_web_context("topik", max_results=1)
+    assert "Berita satu" in result
+    assert "Berita dua" not in result
