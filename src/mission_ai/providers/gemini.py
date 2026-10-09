@@ -262,7 +262,7 @@ class GeminiProvider(AIProvider):
                         break
 
                 if lines:
-                    return "\\n".join(lines)
+                    return "\n".join(lines)
 
             print("Peringatan: Google News RSS tidak mengembalikan hasil yang dapat digunakan.")
             return ""
