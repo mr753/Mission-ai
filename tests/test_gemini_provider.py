@@ -138,6 +138,7 @@ def test_gemini_malformed_json_raises_json_decode_error(monkeypatch, mission_ctx
 def test_gemini_caption_and_voiceover_none_response_text(monkeypatch, mission_ctx):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     provider = GeminiProvider()
+    monkeypatch.setattr(provider, "_search_web_context", lambda topic: "")
     mock_client = MagicMock()
     resp = MagicMock()
     resp.text = None
@@ -155,13 +156,14 @@ def test_gemini_caption_and_voiceover_none_response_text(monkeypatch, mission_ct
     assert caption == ""
 
     script = provider.generate_voiceover_script(analysis, mission_ctx)
-    assert script == "Topik yang diangkat adalah summary."
+    assert script == "Topik yang dibahas adalah summary."
 
 
 
 def test_voiceover_rejects_english_image_description_and_falls_back(monkeypatch, mission_ctx):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     provider = GeminiProvider()
+    monkeypatch.setattr(provider, "_search_web_context", lambda topic: "- Sumber berita: Koperasi desa didorong terhubung dengan produsen lokal. (Sumber: https://example.test)")
     mock_client = MagicMock()
     resp = MagicMock()
     resp.text = "An informational poster displaying the headline 'Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional' with three numbered points."
@@ -174,7 +176,7 @@ def test_voiceover_rejects_english_image_description_and_falls_back(monkeypatch,
         relevant_details=[]
     )
     script = provider.generate_voiceover_script(analysis, mission_ctx)
-    assert script.startswith("Topik yang diangkat adalah Rantai Pasok MBG")
+    assert script.startswith("Topik yang dibahas adalah Rantai Pasok MBG")
     assert "informational poster" not in script.lower()
     assert mock_client.models.generate_content.call_count == 2
 
@@ -182,6 +184,7 @@ def test_voiceover_rejects_english_image_description_and_falls_back(monkeypatch,
 def test_voiceover_accepts_natural_indonesian_narration(monkeypatch, mission_ctx):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     provider = GeminiProvider()
+    monkeypatch.setattr(provider, "_search_web_context", lambda topic: "- Rantai pasok MBG membuka peluang produk lokal. (Sumber: https://example.test)")
     mock_client = MagicMock()
     resp = MagicMock()
     resp.text = "Rantai pasok MBG menyoroti peluang produk lokal masuk ke ekosistem penyediaan pangan nasional."
@@ -196,3 +199,39 @@ def test_voiceover_accepts_natural_indonesian_narration(monkeypatch, mission_ctx
     script = provider.generate_voiceover_script(analysis, mission_ctx)
     assert script == resp.text
     assert mock_client.models.generate_content.call_count == 1
+
+
+def test_voiceover_retries_unsupported_certainty_claim(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    monkeypatch.setattr(provider, "_search_web_context", lambda topic: "- Koperasi desa dan Dapur MBG didorong terhubung dengan UMKM lokal. (Sumber: https://example.test)")
+    mock_client = MagicMock()
+    bad = MagicMock()
+    bad.text = "Langkah ini memastikan pasokan pangan berasal langsung dari produsen lokal."
+    good = MagicMock()
+    good.text = "Koperasi desa dan Dapur MBG didorong terhubung dengan UMKM lokal."
+    mock_client.models.generate_content.side_effect = [bad, good]
+    provider._client = mock_client
+    analysis = ImageAnalysis(
+        summary='Judul "Koperasi desa dan Dapur MBG didorong terhubung dengan UMKM lokal"',
+        visible_subjects=[], visual_context="", relevant_details=[]
+    )
+    script = provider.generate_voiceover_script(analysis, mission_ctx)
+    assert script == good.text
+    assert mock_client.models.generate_content.call_count == 2
+
+
+def test_web_research_failure_does_not_crash_pipeline(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    monkeypatch.setattr(provider, "_search_web_context", lambda topic: "")
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.text = "Rantai pasok MBG mengangkat peluang produk lokal masuk ke ekosistem pangan nasional."
+    mock_client.models.generate_content.return_value = response
+    provider._client = mock_client
+    analysis = ImageAnalysis(
+        summary='Judul "Rantai pasok MBG membuka ruang produk lokal masuk ke ekosistem pangan nasional"',
+        visible_subjects=[], visual_context="", relevant_details=[]
+    )
+    assert provider.generate_voiceover_script(analysis, mission_ctx) == response.text
