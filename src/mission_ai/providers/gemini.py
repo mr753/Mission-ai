@@ -198,34 +198,51 @@ class GeminiProvider(AIProvider):
 
     def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
         client = self._get_client()
-        prompt = (
-            "Tulis naskah voice-over media sosial berbahasa Indonesia yang terdengar seperti orang sedang berbicara, "
-            "bukan teks alternatif gambar, laporan, atau deskripsi tata letak.\n\n"
+        source = (
             f"TOPIK MISSION: {mission_context.main_message}\n"
             f"INSTRUKSI MISSION: {mission_context.instructions}\n"
             f"RINGKASAN GAMBAR: {image_analysis.summary}\n"
-            f"SUBJEK YANG TERLIHAT: {image_analysis.visible_subjects}\n"
+            f"SUBJEK TERLIHAT: {image_analysis.visible_subjects}\n"
             f"KONTEKS VISUAL: {image_analysis.visual_context}\n"
-            f"DETAIL RELEVAN: {', '.join(image_analysis.relevant_details)}\n\n"
-            "TUJUAN NASKAH:\n"
-            "1. Sampaikan inti topik yang dibahas materi, bukan sekadar mengatakan bahwa gambar adalah poster atau menyebut jumlah orang di foto.\n"
-            "2. Gunakan topik mission sebagai arah pembahasan, dan gunakan analisis gambar hanya untuk hal yang memang terlihat atau tertulis.\n"
-            "3. Jika judul atau teks utama materi tersedia dalam ringkasan/detail gambar, jelaskan makna topiknya dengan bahasa lisan sederhana tanpa menambah fakta baru.\n"
-            "4. Buat alur alami: pembuka singkat yang relevan, inti topik, lalu penutup singkat. Jangan memaksakan ajakan atau kesimpulan jika sumber tidak mendukungnya.\n\n"
-            "BATASAN FAKTA:\n"
-            "5. Jangan menganggap gambar membuktikan bahwa suatu program sudah berjalan, berhasil, berdampak, membuka peluang, atau melibatkan pihak tertentu secara nyata.\n"
-            "6. Jangan mengarang mekanisme, kebijakan, hasil, manfaat, sebab-akibat, angka, lokasi, waktu, daftar produk, atau rincian acara.\n"
-            "7. Jangan menyebut forum, diskusi, pembicara, laporan, atau acara kecuali benar-benar dinyatakan jelas oleh sumber. Kehadiran orang dalam foto saja tidak membuktikan konteks acara.\n"
-            "8. Setiap klaim faktual harus dapat ditelusuri langsung ke topik mission atau detail gambar yang eksplisit. Jika tidak didukung, hapus.\n"
-            "9. Jika sumber terlalu terbatas, buat naskah lebih singkat yang hanya memperkenalkan topik. Jangan menggantinya dengan deskripsi visual yang tidak berguna bagi penonton.\n\n"
-            "GAYA DAN PANJANG:\n"
-            "10. Gunakan bahasa Indonesia percakapan yang luwes, jelas, dan enak diucapkan; hindari gaya berita, birokrasi, dan promosi berlebihan.\n"
-            "11. Target 40-65 kata jika sumber cukup; kebenaran lebih penting daripada durasi.\n"
-            "12. Tanpa markdown, hashtag, emoji, judul, atau catatan produksi. Keluarkan hanya naskah voice-over final."
+            f"DETAIL GAMBAR: {', '.join(image_analysis.relevant_details)}"
+        )
+        prompt = (
+            "Buat naskah voice-over bahasa Indonesia yang alami untuk media sosial. "
+            "Jelaskan topik utama materi dengan bahasa lisan, jangan hanya mendeskripsikan tata letak gambar.\n\n"
+            f"SUMBER YANG BOLEH DIGUNAKAN:\n{source}\n\n"
+            "ATURAN KETAT:\n"
+            "1. Sumber di atas adalah SATU-SATUNYA dasar fakta. Jangan memakai pengetahuan umum atau dugaan.\n"
+            "2. Jangan menyimpulkan bahwa sesuatu didorong, dirancang, sudah berjalan, dipantau, berhasil, memberi manfaat, atau mencapai hasil kecuali hal itu tertulis secara eksplisit dalam sumber.\n"
+            "3. Jangan mengubah tujuan atau harapan menjadi fakta yang sudah terjadi. Kata seperti 'supaya', 'agar', atau 'diharapkan' tidak membuktikan hasil.\n"
+            "4. Jangan menambahkan peran, hubungan sebab-akibat, proses, kebijakan, mekanisme, atau dampak yang tidak disebutkan langsung.\n"
+            "5. Jangan menyebut jumlah orang, acara, diskusi, pembicara, atau poster sebagai inti narasi kecuali itu memang topik utama sumber.\n"
+            "6. Bila hanya nama/topik yang tersedia, jelaskan topik itu secara sederhana dan singkat. Jangan mengisi kekosongan dengan klaim.\n"
+            "7. Buat 2-4 kalimat percakapan yang mengalir. Jangan memaksakan durasi atau jumlah kata. Akurasi lebih penting.\n"
+            "8. Tanpa emoji, hashtag, markdown, judul, atau catatan produksi. Keluarkan hanya naskah final."
         )
         response = self._call_with_retry(
             client.models.generate_content,
             model=self.model_name,
             contents=prompt
         )
-        return (response.text or "").strip()
+        draft = (response.text or "").strip()
+        if not draft:
+            raise ValueError("Gemini returned an empty voice-over script.")
+
+        # Second pass: remove claims that cannot be directly supported by the supplied source.
+        audit_prompt = (
+            "Periksa naskah voice-over berikut dengan sangat ketat. Tulis ulang agar SETIAP klaim faktual "
+            "didukung secara langsung oleh sumber. Hapus klaim yang hanya berupa dugaan, tujuan yang dianggap "
+            "sudah tercapai, manfaat, proses, peran, pemantauan, atau hasil yang tidak dinyatakan eksplisit. "
+            "Jangan menambahkan fakta baru. Pertahankan bahasa lisan yang alami. Jika sumber terlalu terbatas, "
+            "hasilkan naskah yang lebih pendek. Keluarkan hanya naskah final.\n\n"
+            f"SUMBER:\n{source}\n\n"
+            f"NASKAH UNTUK DIPERIKSA:\n{draft}"
+        )
+        audited = self._call_with_retry(
+            client.models.generate_content,
+            model=self.model_name,
+            contents=audit_prompt
+        )
+        final_script = (audited.text or "").strip()
+        return final_script or draft
