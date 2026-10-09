@@ -248,7 +248,11 @@ class GeminiProvider(AIProvider):
                 contents=retry_prompt,
             )
             candidate = (response.text or "").strip()
-            if candidate and not any(marker in candidate.lower() for marker in invalid_markers):
+            # Preserve the provider contract: an empty model response remains empty.
+            # The downstream pipeline can decide how to handle missing caption text.
+            if not candidate:
+                return ""
+            if not any(marker in candidate.lower() for marker in invalid_markers):
                 return candidate
 
         # Safe fallback: make no claim beyond the identified topic.
