@@ -312,12 +312,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "error": "Job recorded in checkpoint without content package metadata."
                 })
 
-        # Once usable output exists, show only the current completed package.
-        # Older failed candidate attempts are not useful in the Output view.
-        completed_posts = [post for post in posts if post.get("status") == "COMPLETED"]
-        if completed_posts:
-            posts = completed_posts
-
+        # Keep failed jobs visible alongside completed jobs so errors remain diagnosable.
+        # Metadata and checkpoint state are the source of truth for each job's status.
         return {"mission_id": mission_id, "posts": posts}
 
     @app.post("/api/missions")
