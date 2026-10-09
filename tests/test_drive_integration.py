@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import google.auth.transport.requests  # Ensure the submodule is loaded before patching its Request class.
 from PIL import Image
 
 from mission_ai.config import AppConfig
@@ -91,9 +92,9 @@ ENCODABLE_VALUES = [
 
 
 @pytest.mark.parametrize("value_label,value", ENCODABLE_VALUES, ids=[v for v, _ in ENCODABLE_VALUES])
-def test_api_request_query_encodes_spaces_quotes_and_unicode(value_label, value):
+def test_api_request_query_encodes_spaces_quotes_and_unicode(tmp_path, value_label, value):
     """The query string must be RFC 3986 encoded (urllib.parse.urlencode)."""
-    resolver = GoogleDriveFolderResolver(download_dir=Path("/tmp/drive"), access_token="tok")
+    resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive", access_token="tok")
 
     captured = {}
     with patch("urllib.request.Request") as mock_req_cls, \
@@ -121,8 +122,8 @@ def test_api_request_query_encodes_spaces_quotes_and_unicode(value_label, value)
 # ---------------------------------------------------------------- folder ID extraction (2C) ---
 
 
-def test_resolver_extracts_folder_id_variants():
-    resolver = GoogleDriveFolderResolver(download_dir=Path("/tmp/drive"), access_token="tok")
+def test_resolver_extracts_folder_id_variants(tmp_path):
+    resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive", access_token="tok")
     
     # plain URL
     assert resolver._extract_folder_id("https://drive.google.com/drive/folders/ID123") == "ID123"
