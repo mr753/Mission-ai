@@ -205,9 +205,9 @@ def test_refresh_access_token_uses_google_auth_transport():
 # ---------------------------------------------------------------- access token path (2F) ---
 
 
-def test_access_token_path_works_without_third_party():
-    # Use constructor with access_token
-    resolver = GoogleDriveFolderResolver(download_dir=Path("/tmp/drive"), access_token="tok123")
+def test_access_token_path_works_without_third_party(tmp_path):
+    # Use a writable temporary directory (Termux may not allow /tmp/drive).
+    resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive", access_token="tok123")
     assert resolver._access_token == "tok123"
     
     # Verify it doesn't try to refresh if token is present
@@ -221,9 +221,9 @@ def test_access_token_path_works_without_third_party():
 # ---------------------------------------------------------------- missing auth (2G) ---
 
 
-def test_missing_auth_raises_value_error():
+def test_missing_auth_raises_value_error(tmp_path):
     with patch.dict(os.environ, {}, clear=True):
-        resolver = GoogleDriveFolderResolver(download_dir=Path("/tmp/drive"))
+        resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive")
         with pytest.raises(ValueError, match="Google Drive authentication required"):
             resolver.resolve(DRIVE_URL)
 
@@ -320,9 +320,9 @@ def fake_video_gen(image_path, output_path, **kwargs):
 
 # ---------------------------------------------------------------- public API-key auth ---
 
-def test_public_api_key_auth_builds_key_query():
+def test_public_api_key_auth_builds_key_query(tmp_path):
     resolver = GoogleDriveFolderResolver(
-        download_dir=Path("/tmp/drive"),
+        download_dir=tmp_path / "drive",
         api_key="public-test-key",
     )
     assert resolver._auth_mode == "api_key"
@@ -352,7 +352,16 @@ def test_auth_priority_prefers_user_token_over_service_account(monkeypatch, tmp_
     monkeypatch.setenv("GOOGLE_DRIVE_API_KEY", "public-key")
     monkeypatch.setenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", str(tmp_path / "service.json"))
 
-    with patch("google.oauth2.credentials.Credentials.from_authorized_user_file") as load:
+    from types import SimpleNamespace
+
+    credentials_cls = MagicMock()
+    fake_credentials_module = SimpleNamespace(Credentials=credentials_cls)
+    fake_oauth2_module = SimpleNamespace(credentials=fake_credentials_module)
+    with patch.dict("sys.modules", {
+        "google.oauth2": fake_oauth2_module,
+        "google.oauth2.credentials": fake_credentials_module,
+    }):
+        load = credentials_cls.from_authorized_user_file
         creds = MagicMock()
         creds.valid = True
         creds.token = "user-token"
