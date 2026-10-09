@@ -197,87 +197,66 @@ class GeminiProvider(AIProvider):
         return (response.text or "").strip()
 
     def _search_web_context(self, topic: str, max_results: int = 4) -> str:
-        """Fetch a few public search snippets; return empty context when search is unavailable."""
+        """Fetch Google News RSS results as optional research context."""
+        from html import unescape
         from html.parser import HTMLParser
         from urllib.parse import quote_plus
         from urllib.request import Request, urlopen
+        import xml.etree.ElementTree as ET
 
-        class SearchResultParser(HTMLParser):
+        class TextExtractor(HTMLParser):
             def __init__(self):
                 super().__init__()
-                self.results = []
-                self._current = None
-                self._capture = None
-                self._capture_tag = None
-                self._capture_depth = 0
-                self._buffer = []
-
-            def handle_starttag(self, tag, attrs):
-                attrs = dict(attrs)
-                classes = attrs.get("class", "").split()
-                if self._capture:
-                    self._capture_depth += 1
-                    return
-                if tag == "a" and "result__a" in classes:
-                    self._current = {"title": "", "url": attrs.get("href", "")}
-                    self._capture = "title"
-                    self._capture_tag = tag
-                    self._capture_depth = 1
-                    self._buffer = []
-                elif self._current and (
-                    "result__snippet" in classes or "result__body" in classes
-                ):
-                    self._capture = "snippet"
-                    self._capture_tag = tag
-                    self._capture_depth = 1
-                    self._buffer = []
+                self.parts = []
 
             def handle_data(self, data):
-                if self._capture:
-                    self._buffer.append(data)
-
-            def handle_endtag(self, tag):
-                if not self._capture:
-                    return
-                self._capture_depth -= 1
-                if self._capture_depth > 0 or tag != self._capture_tag:
-                    return
-                text = " ".join(" ".join(self._buffer).split())
-                finished_capture = self._capture
-                self._capture = None
-                self._capture_tag = None
-                self._capture_depth = 0
-                self._buffer = []
-                if self._current and text:
-                    if finished_capture == "title":
-                        self._current["title"] = text
-                    elif finished_capture == "snippet":
-                        self._current["snippet"] = text
-                if self._current and self._current.get("title") and self._current.get("snippet"):
-                    self.results.append(self._current)
-                    self._current = None
+                self.parts.append(data)
 
         try:
             query = quote_plus(topic[:240])
-            request = Request(
-                f"https://html.duckduckgo.com/html/?q={query}",
-                headers={"User-Agent": "Mission-AI/1.0 (content research)"},
+            url = (
+                "https://news.google.com/rss/search?q="
+                f"{query}&hl=id&gl=ID&ceid=ID:id"
             )
-            with urlopen(request, timeout=8) as response:
-                html = response.read(1_000_000).decode("utf-8", errors="replace")
-            parser = SearchResultParser()
-            parser.feed(html)
+            request = Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; Mission-AI/1.0)"},
+            )
+            with urlopen(request, timeout=12) as response:
+                xml_data = response.read(1_000_000)
+            root = ET.fromstring(xml_data)
             lines = []
-            for item in parser.results[:max_results]:
-                title = item.get("title", "").strip()
-                snippet = item.get("snippet", "").strip()
-                url = item.get("url", "").strip()
-                if title and snippet:
-                    lines.append(f"- {title}: {snippet} (Sumber: {url})")
-            return "\n".join(lines)
+            for item in root.findall(".//item")[:max_results]:
+                title = (item.findtext("title") or "").strip()
+                source_node = item.find("source")
+                source = (source_node.text or "").strip() if source_node is not None else ""
+                published = (item.findtext("pubDate") or "").strip()
+                link = (item.findtext("link") or "").strip()
+                description = unescape(item.findtext("description") or "")
+                extractor = TextExtractor()
+                extractor.feed(description)
+                snippet = " ".join(" ".join(extractor.parts).split())
+                if not title:
+                    continue
+                details = [title]
+                if source:
+                    details.append(f"Sumber: {source}")
+                if published:
+                    details.append(f"Tanggal: {published}")
+                if snippet:
+                    details.append(f"Cuplikan: {snippet[:500]}")
+                if link:
+                    details.append(f"Tautan: {link}")
+                lines.append("- " + ". ".join(details))
+            if not lines:
+                print("Peringatan: Google News RSS tidak mengembalikan hasil yang dapat digunakan.")
+            return "\\n".join(lines)
         except Exception as exc:
-            # Search is an optional enrichment step; the core mission should still run offline.
-            print(f"Peringatan: riset web tidak tersedia ({type(exc).__name__}). Voice-over memakai konteks gambar saja.")
+            # Research is optional; never disable TLS verification or break the mission pipeline.
+            print(
+                f"Peringatan: riset web tidak tersedia ({type(exc).__name__}). "
+                "Voice-over memakai konteks gambar saja."
+            )
             return ""
 
     def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
