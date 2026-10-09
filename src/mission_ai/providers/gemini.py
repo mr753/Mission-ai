@@ -199,26 +199,26 @@ class GeminiProvider(AIProvider):
     def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
         client = self._get_client()
         source = (
-            f"TOPIK MISSION: {mission_context.main_message}\n"
+            f"TOPIK MISI: {mission_context.main_message}\n"
             f"POIN MISI: {', '.join(mission_context.key_points)}\n"
-            f"INSTRUKSI MISI: {mission_context.instructions}\n"
             f"RINGKASAN GAMBAR: {image_analysis.summary}\n"
             f"SUBJEK TERLIHAT: {image_analysis.visible_subjects}\n"
-            f"KONTEKS VISUAL: {image_analysis.visual_context}\n"
             f"DETAIL GAMBAR: {', '.join(image_analysis.relevant_details)}"
         )
         prompt = (
-            "Tulis voice-over pendek yang membahas topik misi, bukan menjelaskan bentuk atau tata letak gambar.\n"
-            f"SUMBER YANG BOLEH DIGUNAKAN:\n{source}\n\n"
-            "ATURAN FAKTA YANG KETAT:\n"
-            "- Jangan menambahkan penjelasan yang tidak tertulis secara jelas dalam sumber.\n"
-            "- Jangan menyimpulkan mekanisme, peran pihak, proses pelaksanaan, pengawasan, pencegahan masalah, manfaat, dampak, atau hasil.\n"
-            "- Sebutkan hal seperti rantai pasok, koperasi sebagai penghubung, pengawasan, monopoli, atau manfaat ekonomi HANYA jika sumber secara eksplisit menyebut hal itu; kemiripan topik tidak cukup.\n"
-            "- Jangan mengubah tujuan atau dorongan menjadi bukti bahwa sesuatu sudah berjalan atau berhasil.\n"
-            "- Jika sumber hanya mendukung topik dan pihak yang disebut, cukup sampaikan itu. Narasi pendek yang akurat lebih baik daripada narasi panjang yang menebak.\n"
-            "- Jangan menyebut infografis, gambar, warna, poin bernomor, panggung, atau jumlah orang.\n\n"
-            "GAYA: 1-3 kalimat bahasa Indonesia lisan yang natural, langsung ke inti, tanpa pembuka klise, gaya berita, atau bahasa birokrasi. "
-            "Jangan mengejar durasi. Tanpa emoji, hashtag, markdown, judul, atau catatan produksi. Keluarkan hanya naskah final."
+            "Buat voice-over pendek untuk konten ini. Sebelum menulis, bedakan fakta yang benar-benar tertulis/terlihat "
+            "dari interpretasi model.\n\n"
+            f"SUMBER:\\n{source}\\n\\n"
+            "BATAS WAJIB:\\n"
+            "1. Jangan menambahkan fakta, hubungan sebab-akibat, mekanisme, atau penjelasan yang tidak dinyatakan secara eksplisit dalam sumber.\\n"
+            "2. Jangan menganggap kata yang muncul di topik sebagai bukti bahwa proses, peran, pengawasan, manfaat, atau dampak tertentu benar-benar ada.\\n"
+            "3. Jangan menyebut 'perancangan rantai pasok', 'koperasi sebagai penghubung', 'pengawasan', 'mencegah monopoli', atau 'manfaat ekonomi' kecuali frasa/maknanya benar-benar ada di sumber yang diberikan.\\n"
+            "4. Jangan menyimpulkan dari instruksi mission. Instruksi adalah tugas yang harus dilakukan, bukan bukti tentang fakta pada gambar.\\n"
+            "5. Jangan mengubah dorongan/tujuan menjadi klaim bahwa sesuatu sudah berjalan atau berhasil.\\n"
+            "6. Jangan mendeskripsikan layout, jumlah orang, panggung, warna, atau bentuk gambar.\\n"
+            "7. Jika sumber tidak cukup untuk penjelasan lebih jauh, cukup sebut topik dan pihak yang disebut, lalu berhenti. Jangan mengisi kekosongan dengan dugaan.\\n\\n"
+            "GAYA: 1-2 kalimat bahasa Indonesia lisan yang natural, langsung, tidak kaku. Jangan mengejar durasi. "
+            "Tanpa pembuka klise, emoji, hashtag, judul, atau catatan. Keluarkan hanya naskah final."
         )
         response = self._call_with_retry(
             client.models.generate_content,
