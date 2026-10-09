@@ -287,8 +287,19 @@ class GeminiProvider(AIProvider):
 
         client = self._get_client()
         summary = str(image_analysis.summary or "").strip()
-        title_match = re.search(r'["“]([^"”]{12,240})["”]', summary)
-        source_title = title_match.group(1).strip() if title_match else summary
+        # Prefer text actually read from the image over an AI-generated visual description.
+        source_title = ""
+        for subject in (image_analysis.visible_subjects or []):
+            subject_text = str(subject)
+            if not re.search(r"text overlay|teks|judul|headline|tertulis", subject_text, re.IGNORECASE):
+                continue
+            title_match = re.search(r"""['"“]([^'"”]{12,240})['"”]""", subject_text)
+            if title_match:
+                source_title = title_match.group(1).strip()
+                break
+        if not source_title:
+            title_match = re.search(r'["“]([^"”]{12,240})["”]', summary)
+            source_title = title_match.group(1).strip() if title_match else summary
         if not source_title:
             source_title = str(mission_context.main_message or "").strip()
         if not source_title:
@@ -337,8 +348,12 @@ class GeminiProvider(AIProvider):
             invalid_markers = (
                 "an informational poster", "this image", "the image", "the picture",
                 "the photograph", "numbered points", "visual layout", "a photograph of",
-                "this poster", "the poster displays", "the poster shows", "gambar ini menampilkan",
-                "gambar ini menunjukkan", "poster ini menampilkan",
+                "this poster", "the poster displays", "the poster shows",
+                "gambar ini", "foto ini", "poster ini", "infografik ini",
+                "poster informatif", "menyajikan teks dan infografik",
+                "terdapat pula acara", "menampilkan sejumlah pembicara",
+                "audiens yang menghadap", "terlihat pada gambar",
+                "di bagian bawah gambar", "di atas panggung serta audiens",
             )
             unsupported_certainty = (
                 "memastikan", "pasti akan", "terbukti meningkatkan", "menjamin",
