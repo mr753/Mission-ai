@@ -207,18 +207,21 @@ class GeminiProvider(AIProvider):
             f"DETAIL GAMBAR: {', '.join(image_analysis.relevant_details)}"
         )
         prompt = (
-            "Buat naskah voice-over bahasa Indonesia yang alami untuk media sosial. "
-            "Jelaskan topik utama materi dengan bahasa lisan, jangan hanya mendeskripsikan tata letak gambar.\n\n"
-            f"SUMBER YANG BOLEH DIGUNAKAN:\n{source}\n\n"
-            "ATURAN KETAT:\n"
-            "1. Sumber di atas adalah SATU-SATUNYA dasar fakta. Jangan memakai pengetahuan umum atau dugaan.\n"
-            "2. Jangan menyimpulkan bahwa sesuatu didorong, dirancang, sudah berjalan, dipantau, berhasil, memberi manfaat, atau mencapai hasil kecuali hal itu tertulis secara eksplisit dalam sumber.\n"
-            "3. Jangan mengubah tujuan atau harapan menjadi fakta yang sudah terjadi. Kata seperti 'supaya', 'agar', atau 'diharapkan' tidak membuktikan hasil.\n"
-            "4. Jangan menambahkan peran, hubungan sebab-akibat, proses, kebijakan, mekanisme, atau dampak yang tidak disebutkan langsung.\n"
-            "5. Jangan menyebut jumlah orang, acara, diskusi, pembicara, atau poster sebagai inti narasi kecuali itu memang topik utama sumber.\n"
-            "6. Bila hanya nama/topik yang tersedia, jelaskan topik itu secara sederhana dan singkat. Jangan mengisi kekosongan dengan klaim.\n"
-            "7. Buat 2-4 kalimat percakapan yang mengalir. Jangan memaksakan durasi atau jumlah kata. Akurasi lebih penting.\n"
-            "8. Tanpa emoji, hashtag, markdown, judul, atau catatan produksi. Keluarkan hanya naskah final."
+            "Tugas: tulis voice-over media sosial yang benar-benar menjelaskan topik utama, bukan alt-text atau deskripsi gambar. "
+            "Penonton mendengarkan audio, jadi narasi harus tetap berguna walau mereka tidak melihat gambar.\n\n"
+            f"SUMBER:\n{source}\n\n"
+            "CARA MENULIS:\n"
+            "1. Mulai langsung dengan inti topik dalam bahasa percakapan yang natural. Jangan membuka dengan pertanyaan klise seperti 'Pernahkah Anda melihat...'\n"
+            "2. Gunakan topik mission untuk menyatakan apa yang sedang diangkat atau menjadi tujuan pembahasan. Bingkai sebagai topik, gagasan, atau upaya yang dibahas—bukan sebagai hasil yang sudah terjadi.\n"
+            "3. Contoh framing aman: 'Materi ini mengangkat upaya menghubungkan koperasi desa dan Dapur MBG dengan UMKM serta pelaku pangan lokal.' Gunakan hanya jika sesuai dengan sumber.\n"
+            "4. Setelah inti topik, jelaskan satu makna atau tujuan yang benar-benar tertulis di sumber. Jika tidak ada informasi pendukung, akhiri dengan ringkas; jangan mengisi durasi dengan deskripsi visual.\n"
+            "5. Jangan jadikan rincian seperti warna, poin bernomor, jumlah orang, panggung, foto, atau bentuk poster sebagai isi utama, kecuali misi memang membahas hal visual tersebut.\n\n"
+            "BATASAN FAKTA:\n"
+            "6. Sumber di atas adalah satu-satunya dasar. Jangan menambah pengetahuan umum, proses, mekanisme, peran, kebijakan, hasil, dampak, atau manfaat yang tidak tertulis.\n"
+            "7. Bedakan tujuan dari kenyataan: jangan menyatakan program sudah berjalan, pihak sudah terlibat, proses dipantau, atau manfaat telah dirasakan kecuali dinyatakan eksplisit.\n"
+            "8. Jangan mengubah tujuan/harapan menjadi hasil pasti. Jangan mengarang angka, waktu, lokasi, atau contoh produk.\n"
+            "9. Jika informasi terbatas, buat narasi topik yang singkat dan jelas. Jangan beralih menjadi deskripsi gambar.\n\n"
+            "GAYA: 2-4 kalimat, bahasa Indonesia lisan yang luwes dan mudah dibacakan, bukan gaya berita atau birokrasi. Tidak perlu mengejar jumlah kata atau durasi. Tanpa emoji, hashtag, markdown, judul, atau catatan produksi. Keluarkan hanya naskah final."
         )
         response = self._call_with_retry(
             client.models.generate_content,
@@ -229,15 +232,13 @@ class GeminiProvider(AIProvider):
         if not draft:
             raise ValueError("Gemini returned an empty voice-over script.")
 
-        # Second pass: remove claims that cannot be directly supported by the supplied source.
         audit_prompt = (
-            "Periksa naskah voice-over berikut dengan sangat ketat. Tulis ulang agar SETIAP klaim faktual "
-            "didukung secara langsung oleh sumber. Hapus klaim yang hanya berupa dugaan, tujuan yang dianggap "
-            "sudah tercapai, manfaat, proses, peran, pemantauan, atau hasil yang tidak dinyatakan eksplisit. "
-            "Jangan menambahkan fakta baru. Pertahankan bahasa lisan yang alami. Jika sumber terlalu terbatas, "
-            "hasilkan naskah yang lebih pendek. Keluarkan hanya naskah final.\n\n"
-            f"SUMBER:\n{source}\n\n"
-            f"NASKAH UNTUK DIPERIKSA:\n{draft}"
+            "Edit naskah ini agar menjadi voice-over lisan yang natural dan tetap membahas inti topik. "
+            "JANGAN mengubahnya menjadi deskripsi gambar atau alt-text. Pertahankan framing topik/gagasan/tujuan, "
+            "tetapi hapus klaim hasil, proses, manfaat, peran, atau dampak yang tidak dinyatakan eksplisit oleh sumber. "
+            "Jangan menambahkan fakta baru. Jika sumber terbatas, pertahankan narasi topik yang singkat daripada "
+            "menyebut tata letak gambar. Keluarkan hanya naskah final.\n\n"
+            f"SUMBER:\n{source}\n\nNASKAH:\n{draft}"
         )
         audited = self._call_with_retry(
             client.models.generate_content,
