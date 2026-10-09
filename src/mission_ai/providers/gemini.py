@@ -209,14 +209,14 @@ class GeminiProvider(AIProvider):
         )
         prompt = (
             "Tulis voice-over pendek yang membahas topik misi, bukan menjelaskan bentuk atau tata letak gambar.\n"
-            f"SUMBER YANG BOLEH DIGUNAKAN:\\n{source}\\n\\n"
-            "ATURAN FAKTA YANG KETAT:\\n"
-            "- Jangan menambahkan penjelasan yang tidak tertulis secara jelas dalam sumber.\\n"
-            "- Jangan menyimpulkan mekanisme, peran pihak, proses pelaksanaan, pengawasan, pencegahan masalah, manfaat, dampak, atau hasil.\\n"
-            "- Sebutkan hal seperti rantai pasok, koperasi sebagai penghubung, pengawasan, monopoli, atau manfaat ekonomi HANYA jika sumber secara eksplisit menyebut hal itu; kemiripan topik tidak cukup.\\n"
-            "- Jangan mengubah tujuan atau dorongan menjadi bukti bahwa sesuatu sudah berjalan atau berhasil.\\n"
-            "- Jika sumber hanya mendukung topik dan pihak yang disebut, cukup sampaikan itu. Narasi pendek yang akurat lebih baik daripada narasi panjang yang menebak.\\n"
-            "- Jangan menyebut infografis, gambar, warna, poin bernomor, panggung, atau jumlah orang.\\n\\n"
+            f"SUMBER YANG BOLEH DIGUNAKAN:\n{source}\n\n"
+            "ATURAN FAKTA YANG KETAT:\n"
+            "- Jangan menambahkan penjelasan yang tidak tertulis secara jelas dalam sumber.\n"
+            "- Jangan menyimpulkan mekanisme, peran pihak, proses pelaksanaan, pengawasan, pencegahan masalah, manfaat, dampak, atau hasil.\n"
+            "- Sebutkan hal seperti rantai pasok, koperasi sebagai penghubung, pengawasan, monopoli, atau manfaat ekonomi HANYA jika sumber secara eksplisit menyebut hal itu; kemiripan topik tidak cukup.\n"
+            "- Jangan mengubah tujuan atau dorongan menjadi bukti bahwa sesuatu sudah berjalan atau berhasil.\n"
+            "- Jika sumber hanya mendukung topik dan pihak yang disebut, cukup sampaikan itu. Narasi pendek yang akurat lebih baik daripada narasi panjang yang menebak.\n"
+            "- Jangan menyebut infografis, gambar, warna, poin bernomor, panggung, atau jumlah orang.\n\n"
             "GAYA: 1-3 kalimat bahasa Indonesia lisan yang natural, langsung ke inti, tanpa pembuka klise, gaya berita, atau bahasa birokrasi. "
             "Jangan mengejar durasi. Tanpa emoji, hashtag, markdown, judul, atau catatan produksi. Keluarkan hanya naskah final."
         )
