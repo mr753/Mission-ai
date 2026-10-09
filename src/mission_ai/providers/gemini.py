@@ -6,6 +6,49 @@ from PIL import Image
 from mission_ai.models import ImageAnalysis, MissionContext
 from mission_ai.providers.base import AIProvider
 
+def _extract_source_title(image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
+    """Extract the image's explicit headline before falling back to generated descriptions."""
+    import re
+
+    visible_subjects = [
+        str(item).strip()
+        for item in (image_analysis.visible_subjects or [])
+        if str(item).strip()
+    ]
+    relevant_details = [
+        str(item).strip()
+        for item in (image_analysis.relevant_details or [])
+        if str(item).strip()
+    ]
+    summary = str(image_analysis.summary or "").strip()
+
+    # Search explicit headline-bearing fields first; relevant_details often contains OCR
+    # even when the vision model omits the headline from visible_subjects.
+    for text in [*visible_subjects, *relevant_details]:
+        if not re.search(
+            r"headline|headline text|judul|tajuk|teks utama|text overlay|teks|reading|reads|membaca|tertulis",
+            text,
+            re.IGNORECASE,
+        ):
+            continue
+        match = re.search(r"""['"“]([^'"”]{12,240})['"”]""", text)
+        if match:
+            return match.group(1).strip()
+
+    # A quoted title in the summary is also a direct source, unlike its visual description.
+    match = re.search(r"""['"“]([^'"”]{12,240})['"”]""", summary)
+    if match:
+        return match.group(1).strip()
+
+    # Avoid returning generic visual summaries when a relevant detail contains a usable topic.
+    for detail in relevant_details:
+        match = re.search(r"""(?:judul|headline|berbunyi|bertuliskan|reading)\s+['"“]([^'"”]{12,240})['"”]""", detail, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+    return summary or str(mission_context.main_message or "").strip()
+
+
 class GeminiProvider(AIProvider):
     def __init__(self, model_name: str = "gemini-3.8-flash"):
         self.model_name = model_name
@@ -194,20 +237,8 @@ class GeminiProvider(AIProvider):
         visible_subjects = [str(item).strip() for item in (image_analysis.visible_subjects or []) if str(item).strip()]
         relevant_details = [str(item).strip() for item in (image_analysis.relevant_details or []) if str(item).strip()]
 
-        # Prefer an actual headline read from the image, not the model's visual description.
-        source_title = ""
-        for subject in visible_subjects:
-            if not re.search(r"text overlay|teks|judul|headline|tertulis", subject, re.IGNORECASE):
-                continue
-            match = re.search(r"""['"“]([^'"”]{12,240})['"”]""", subject)
-            if match:
-                source_title = match.group(1).strip()
-                break
-        if not source_title:
-            match = re.search(r"""['"“]([^'"”]{12,240})['"”]""", summary)
-            source_title = match.group(1).strip() if match else summary
-        if not source_title:
-            source_title = str(mission_context.main_message or "").strip()
+        # Prefer OCR/headline details even when visible_subjects omitted the title.
+        source_title = _extract_source_title(image_analysis, mission_context)
 
         facts = {
             "judul/topik": source_title,
@@ -233,7 +264,9 @@ class GeminiProvider(AIProvider):
             "terbukti meningkatkan", "memastikan", "menjamin", "makin transparan",
             "lebih transparan", "rantai pasok yang efisien", "pasokan yang efisien",
             "dampak positif yang berkelanjutan", "masa depan bangsa yang lebih sehat",
-            "masa depan yang lebih sehat", "berhasil meningkatkan",
+            "masa depan yang lebih sehat", "masa depan yang lebih sehat dan berdaya",
+            "langkah nyata untuk masa depan", "makin transparan dan tangguh",
+            "rantai pasok mbg yang makin transparan", "berhasil meningkatkan",
         )
         for attempt in range(2):
             retry_prompt = prompt
@@ -350,21 +383,8 @@ class GeminiProvider(AIProvider):
 
         client = self._get_client()
         summary = str(image_analysis.summary or "").strip()
-        # Prefer text actually read from the image over an AI-generated visual description.
-        source_title = ""
-        for subject in (image_analysis.visible_subjects or []):
-            subject_text = str(subject)
-            if not re.search(r"text overlay|teks|judul|headline|tertulis", subject_text, re.IGNORECASE):
-                continue
-            title_match = re.search(r"""['"“]([^'"”]{12,240})['"”]""", subject_text)
-            if title_match:
-                source_title = title_match.group(1).strip()
-                break
-        if not source_title:
-            title_match = re.search(r'["“]([^"”]{12,240})["”]', summary)
-            source_title = title_match.group(1).strip() if title_match else summary
-        if not source_title:
-            source_title = str(mission_context.main_message or "").strip()
+        # Use the same source-title extraction as captions to keep topic handling consistent.
+        source_title = _extract_source_title(image_analysis, mission_context)
         if not source_title:
             raise ValueError("No source title or mission topic is available for voice-over.")
 
