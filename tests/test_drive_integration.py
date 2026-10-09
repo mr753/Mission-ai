@@ -347,27 +347,12 @@ def test_public_api_key_auth_builds_key_query(tmp_path):
 
 def test_auth_priority_prefers_user_token_over_service_account(monkeypatch, tmp_path):
     token = tmp_path / "token.json"
-    token.write_text("{}")
+    token.write_text(json.dumps({"token": "user-token", "expires_at": 9999999999}))
     monkeypatch.setenv("GOOGLE_DRIVE_OAUTH_TOKEN_FILE", str(token))
     monkeypatch.setenv("GOOGLE_DRIVE_API_KEY", "public-key")
     monkeypatch.setenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", str(tmp_path / "service.json"))
 
-    from types import SimpleNamespace
-
-    credentials_cls = MagicMock()
-    fake_credentials_module = SimpleNamespace(Credentials=credentials_cls)
-    fake_oauth2_module = SimpleNamespace(credentials=fake_credentials_module)
-    with patch.dict("sys.modules", {
-        "google.oauth2": fake_oauth2_module,
-        "google.oauth2.credentials": fake_credentials_module,
-    }):
-        load = credentials_cls.from_authorized_user_file
-        creds = MagicMock()
-        creds.valid = True
-        creds.token = "user-token"
-        load.return_value = creds
-
-        resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive")
+    resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive")
 
     assert resolver._auth_mode == "oauth"
     assert resolver._access_token == "user-token"
