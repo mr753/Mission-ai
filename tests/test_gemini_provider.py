@@ -400,3 +400,83 @@ def test_caption_falls_back_to_source_topic_if_generations_are_unusable(monkeypa
     )
     assert mock_client.models.generate_content.call_count == 2
 
+def test_headline_is_extracted_from_relevant_details_when_missing_from_visible_subjects(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    searched_topics = []
+    monkeypatch.setattr(
+        provider,
+        "_search_web_context",
+        lambda topic: searched_topics.append(topic) or "",
+    )
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.text = (
+        "Rantai pasok MBG membuka peluang bagi produk lokal masuk ke "
+        "ekosistem penyediaan pangan nasional."
+    )
+    mock_client.models.generate_content.return_value = response
+    provider._client = mock_client
+    headline = (
+        "Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem "
+        "Penyediaan Pangan Nasional"
+    )
+    analysis = ImageAnalysis(
+        summary=(
+            "An infographic poster featuring Indonesian text about the MBG supply chain "
+            "and a panel discussion."
+        ),
+        visible_subjects=[
+            "Six speakers seated on a stage",
+            "An audience seated in front of the stage",
+        ],
+        visual_context="An indoor auditorium with a panel discussion.",
+        relevant_details=[
+            f"Large bold Indonesian headline text at the top reading '{headline}'",
+            "Three numbered points labeled 01, 02, and 03.",
+        ],
+    )
+
+    script = provider.generate_voiceover_script(analysis, mission_ctx)
+
+    assert searched_topics == [headline]
+    assert "produk lokal" in script.lower()
+    assert mock_client.models.generate_content.call_count == 1
+
+
+def test_caption_retries_unsupported_transparency_and_resilience_claim(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    mock_client = MagicMock()
+    bad = MagicMock()
+    bad.text = (
+        "Dari diskusi panel hingga rantai pasok MBG yang makin transparan dan tangguh! "
+        "Langkah nyata untuk masa depan bangsa."
+    )
+    good = MagicMock()
+    good.text = (
+        "Rantai pasok MBG membuka ruang bagi produk lokal masuk ke ekosistem "
+        "penyediaan pangan nasional. Apa peluangnya bagi produsen lokal?"
+    )
+    mock_client.models.generate_content.side_effect = [bad, good]
+    provider._client = mock_client
+    headline = (
+        "Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem "
+        "Penyediaan Pangan Nasional"
+    )
+    analysis = ImageAnalysis(
+        summary="An infographic poster about the MBG supply chain.",
+        visible_subjects=["Six speakers seated on a stage"],
+        visual_context="A panel discussion.",
+        relevant_details=[
+            f"Large bold Indonesian headline text at the top reading '{headline}'"
+        ],
+    )
+
+    caption = provider.generate_caption(analysis, mission_ctx, "instagram")
+
+    assert caption == good.text
+    assert mock_client.models.generate_content.call_count == 2
+    first_prompt = mock_client.models.generate_content.call_args_list[0].kwargs["contents"]
+    assert headline in first_prompt
+
