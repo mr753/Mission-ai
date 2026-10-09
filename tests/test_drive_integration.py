@@ -222,9 +222,13 @@ def test_access_token_path_works_without_third_party(tmp_path):
 
 
 def test_missing_auth_raises_value_error(tmp_path):
+    # Isolate the test from a real user OAuth token saved under ~/.config.
     with patch.dict(os.environ, {}, clear=True):
-        resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive")
-        with pytest.raises(ValueError, match="Google Drive authentication required"):
+        resolver = GoogleDriveFolderResolver(
+            download_dir=tmp_path / "drive",
+            oauth_token_path=str(tmp_path / "missing-token.json"),
+        )
+        with pytest.raises(ValueError, match="Google Drive access is not configured"):
             resolver.resolve(DRIVE_URL)
 
 
