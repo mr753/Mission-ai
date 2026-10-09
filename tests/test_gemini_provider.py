@@ -344,3 +344,59 @@ def test_google_news_rss_parser_respects_max_results(monkeypatch):
     result = GeminiProvider()._search_web_context("topik", max_results=1)
     assert "Berita satu" in result
     assert "Berita dua" not in result
+
+
+def test_caption_retries_unsupported_claims_and_accepts_grounded_caption(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    mock_client = MagicMock()
+    bad = MagicMock()
+    bad.text = "Kemarin para pakar membahas rantai pasok MBG yang makin transparan dan tangguh."
+    good = MagicMock()
+    good.text = (
+        "Rantai pasok MBG membuka ruang bagi produk lokal masuk ke ekosistem "
+        "penyediaan pangan nasional. Apa artinya bagi produsen lokal?"
+    )
+    mock_client.models.generate_content.side_effect = [bad, good]
+    provider._client = mock_client
+    analysis = ImageAnalysis(
+        summary="An informational poster about MBG supply chain.",
+        visible_subjects=[
+            "Text overlay in Indonesian ('Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional')"
+        ],
+        visual_context="",
+        relevant_details=["Teks menyebut produk lokal dan ekosistem penyediaan pangan nasional"],
+    )
+
+    caption = provider.generate_caption(analysis, mission_ctx, "instagram")
+
+    assert caption == good.text
+    assert mock_client.models.generate_content.call_count == 2
+    first_prompt = mock_client.models.generate_content.call_args_list[0].kwargs["contents"]
+    assert "Rantai Pasok MBG Membuka Ruang Produk Lokal" in first_prompt
+    assert "Jangan mengarang tanggal/waktu" in first_prompt
+
+
+def test_caption_falls_back_to_source_topic_if_generations_are_unusable(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    mock_client = MagicMock()
+    bad = MagicMock()
+    bad.text = "Kemarin para pakar membahas program yang terbukti meningkatkan dampak positif."
+    mock_client.models.generate_content.return_value = bad
+    provider._client = mock_client
+    analysis = ImageAnalysis(
+        summary="Poster berjudul 'Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional'",
+        visible_subjects=[],
+        visual_context="",
+        relevant_details=[],
+    )
+
+    caption = provider.generate_caption(analysis, mission_ctx, "instagram")
+
+    assert caption == (
+        "Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional. "
+        "Kenali lebih dekat topik ini."
+    )
+    assert mock_client.models.generate_content.call_count == 2
+
