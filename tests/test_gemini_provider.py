@@ -155,4 +155,44 @@ def test_gemini_caption_and_voiceover_none_response_text(monkeypatch, mission_ct
     assert caption == ""
 
     script = provider.generate_voiceover_script(analysis, mission_ctx)
-    assert script == ""
+    assert script == "Topik yang diangkat adalah summary."
+
+
+
+def test_voiceover_rejects_english_image_description_and_falls_back(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    mock_client = MagicMock()
+    resp = MagicMock()
+    resp.text = "An informational poster displaying the headline 'Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional' with three numbered points."
+    mock_client.models.generate_content.return_value = resp
+    provider._client = mock_client
+    analysis = ImageAnalysis(
+        summary="Poster berjudul \"Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional\"",
+        visible_subjects=[],
+        visual_context="",
+        relevant_details=[]
+    )
+    script = provider.generate_voiceover_script(analysis, mission_ctx)
+    assert script.startswith("Topik yang diangkat adalah Rantai Pasok MBG")
+    assert "informational poster" not in script.lower()
+    assert mock_client.models.generate_content.call_count == 2
+
+
+def test_voiceover_accepts_natural_indonesian_narration(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    mock_client = MagicMock()
+    resp = MagicMock()
+    resp.text = "Rantai pasok MBG menyoroti peluang produk lokal masuk ke ekosistem penyediaan pangan nasional."
+    mock_client.models.generate_content.return_value = resp
+    provider._client = mock_client
+    analysis = ImageAnalysis(
+        summary="Poster berjudul \"Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional\"",
+        visible_subjects=[],
+        visual_context="",
+        relevant_details=[]
+    )
+    script = provider.generate_voiceover_script(analysis, mission_ctx)
+    assert script == resp.text
+    assert mock_client.models.generate_content.call_count == 1
