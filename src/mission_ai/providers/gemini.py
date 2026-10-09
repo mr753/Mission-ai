@@ -196,13 +196,83 @@ class GeminiProvider(AIProvider):
         )
         return (response.text or "").strip()
 
+    def _search_web_context(self, topic: str, max_results: int = 4) -> str:
+        """Fetch a few public search snippets; return empty context when search is unavailable."""
+        from html.parser import HTMLParser
+        from urllib.parse import quote_plus
+        from urllib.request import Request, urlopen
+
+        class SearchResultParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.results = []
+                self._current = None
+                self._capture = None
+                self._buffer = []
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                classes = attrs.get("class", "").split()
+                if tag == "a" and "result__a" in classes:
+                    self._current = {"title": "", "url": attrs.get("href", "")}
+                    self._capture = "title"
+                    self._buffer = []
+                elif self._current and tag in ("a", "div", "span") and (
+                    "result__snippet" in classes or "result__body" in classes
+                ):
+                    self._capture = "snippet"
+                    self._buffer = []
+
+            def handle_data(self, data):
+                if self._capture:
+                    self._buffer.append(data)
+
+            def handle_endtag(self, tag):
+                if not self._capture:
+                    return
+                text = " ".join(" ".join(self._buffer).split())
+                if self._capture == "title" and tag == "a" and self._current:
+                    self._current["title"] = text
+                    self._capture = None
+                    self._buffer = []
+                elif self._capture == "snippet" and tag in ("div", "span") and self._current:
+                    if text:
+                        self._current["snippet"] = text
+                    self._capture = None
+                    self._buffer = []
+                    if self._current.get("title") and self._current.get("snippet"):
+                        self.results.append(self._current)
+                        self._current = None
+
+        try:
+            query = quote_plus(topic[:240])
+            request = Request(
+                f"https://html.duckduckgo.com/html/?q={query}",
+                headers={"User-Agent": "Mission-AI/1.0 (content research)"},
+            )
+            with urlopen(request, timeout=8) as response:
+                html = response.read(1_000_000).decode("utf-8", errors="replace")
+            parser = SearchResultParser()
+            parser.feed(html)
+            lines = []
+            for item in parser.results[:max_results]:
+                title = item.get("title", "").strip()
+                snippet = item.get("snippet", "").strip()
+                url = item.get("url", "").strip()
+                if title and snippet:
+                    lines.append(f"- {title}: {snippet} (Sumber: {url})")
+            return "\n".join(lines)
+        except Exception as exc:
+            # Search is an optional enrichment step; the core mission should still run offline.
+            print(f"Peringatan: riset web tidak tersedia ({type(exc).__name__}). Voice-over memakai konteks gambar saja.")
+            return ""
+
     def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
-        """Generate Indonesian narration grounded in the source headline, not visual alt-text."""
+        """Create natural Indonesian narration using the image topic plus optional web research."""
         import re
 
         client = self._get_client()
         summary = str(image_analysis.summary or "").strip()
-        # Image analysis may wrap a headline in quotes. Prefer that exact source text.
         title_match = re.search(r'["“]([^"”]{12,240})["”]', summary)
         source_title = title_match.group(1).strip() if title_match else summary
         if not source_title:
@@ -210,59 +280,65 @@ class GeminiProvider(AIProvider):
         if not source_title:
             raise ValueError("No source title or mission topic is available for voice-over.")
 
+        research = self._search_web_context(source_title)
+        research_section = research if research else (
+            "Tidak ada hasil riset web yang berhasil diambil. Jangan berpura-pura telah melakukan riset "
+            "dan jangan menambahkan fakta di luar judul sumber."
+        )
         prompt = (
-            "Tulis voice-over untuk konten media sosial dalam BAHASA INDONESIA. "
-            "Buat 1–2 kalimat yang terdengar seperti orang Indonesia berbicara secara alami. "
-            "Jadikan judul sumber sebagai topik utama; parafrasekan secara lisan, bukan sekadar membaca judul. "
-            "JANGAN mendeskripsikan poster, gambar, warna, poin bernomor, foto, atau tata letak. "
-            "JANGAN memakai bahasa Inggris. Jangan mengarang sebab-akibat, mekanisme, manfaat, keberhasilan, "
-            "peran organisasi, kegiatan acara, atau fakta lain yang tidak tertulis pada judul sumber. "
-            "Jangan gunakan pembuka klise seperti 'Pernahkah Anda...' atau 'Tahukah kamu...'. "
-            "Keluarkan hanya naskah narasi, tanpa judul, analisis, markdown, atau catatan.\n\n"
-            f"JUDUL SUMBER (fakta yang boleh digunakan): {source_title}\n"
-            f"ARAH MISI: {mission_context.main_message}"
+            "Buat naskah voice-over media sosial dalam bahasa Indonesia yang natural, jelas, dan enak didengar. "
+            "Tulis 2–4 kalimat pendek bila sumber cukup; jika bukti terbatas, cukup 1–2 kalimat. "
+            "Gunakan judul untuk mengenali topik dan hasil pencarian sebagai konteks faktual. "
+            "Utamakan fakta yang didukung cuplikan sumber; jangan mengubah kemungkinan menjadi kepastian. "
+            "Jangan menyatakan sebab-akibat, hasil, manfaat, angka, tanggal, atau peran yang tidak didukung sumber. "
+            "Jangan mendeskripsikan tampilan gambar/poster atau memakai frasa seperti 'gambar ini menunjukkan'. "
+            "Jangan mengarang sumber atau menyebut telah memverifikasi hal yang tidak tersedia. "
+            "Jika sumber saling bertentangan atau cuplikan tidak cukup, tetap pada fakta judul dan nyatakan secara netral. "
+            "Hindari pembuka klise, gaya artikel kaku, dan bahasa Inggris. Keluarkan hanya naskah voice-over.\n\n"
+            f"JUDUL/TOPIK DARI GAMBAR:\n{source_title}\n\n"
+            f"HASIL PENCARIAN WEB (cuplikan, bukan bukti lengkap):\n{research_section}\n\n"
+            f"ARAH MISI:\n{mission_context.main_message}"
         )
 
-        script = ""
-        # One retry gives the model a chance to correct English or image-alt-text output.
         for attempt in range(2):
             response = self._call_with_retry(
                 client.models.generate_content,
                 model=self.model_name,
                 contents=prompt if attempt == 0 else (
-                    prompt + "\n\nPERBAIKI: hasil sebelumnya tidak valid. "
-                    "Tulis narasi lisan berbahasa Indonesia tentang topik judul saja; "
-                    "jangan deskripsikan tampilan gambar dan jangan menambah fakta."
+                    prompt + "\n\nPerbaiki naskah sebelumnya: hanya gunakan klaim yang didukung judul atau "
+                    "cuplikan sumber, hapus klaim yang terlalu pasti, dan gunakan bahasa Indonesia lisan."
                 ),
             )
             candidate = (response.text or "").strip()
             candidate = re.split(
                 r"\n\s*(?:\*{1,2}|#{1,6})?\s*(?:analisis fakta|fakta vs\.? interpretasi|interpretasi yang dihindari|catatan:|analisis:)\s*",
-                candidate,
-                maxsplit=1,
-                flags=re.IGNORECASE,
+                candidate, maxsplit=1, flags=re.IGNORECASE,
             )[0].strip()
             candidate = re.sub(
                 r"^\s*(?:\*{1,2}|#{1,6})?\s*(?:naskah voice[- ]?over|voice[- ]?over)\s*(?:\*{1,2}|#{1,6})?\s*:?\s*",
                 "", candidate, flags=re.IGNORECASE,
             )
             candidate = re.sub(r"^\s*[-*]\s+", "", candidate, flags=re.MULTILINE).strip()
-
             lower = candidate.lower()
             invalid_markers = (
                 "an informational poster", "this image", "the image", "the picture",
                 "the photograph", "numbered points", "visual layout", "a photograph of",
-                "this poster", "the poster displays", "the poster shows",
+                "this poster", "the poster displays", "the poster shows", "gambar ini menampilkan",
+                "gambar ini menunjukkan", "poster ini menampilkan",
+            )
+            unsupported_certainty = (
+                "memastikan", "pasti akan", "terbukti meningkatkan", "menjamin",
+                "secara otomatis membuat", "sudah berhasil", "dipastikan akan",
             )
             english_markers = ("the headline", "with three", "at the bottom", "this informational", "displaying the headline")
-            looks_like_image_description = any(marker in lower for marker in invalid_markers)
-            looks_english = any(marker in lower for marker in english_markers)
-            if candidate and not looks_like_image_description and not looks_english:
-                script = candidate
-                break
+            if (
+                candidate
+                and not any(marker in lower for marker in invalid_markers)
+                and not any(marker in lower for marker in english_markers)
+                and not any(marker in lower for marker in unsupported_certainty)
+            ):
+                return candidate
 
-        # Safe deterministic fallback: Indonesian, topic-based, and makes no extra factual claims.
-        if not script:
-            script = f"Topik yang diangkat adalah {source_title.rstrip('.!?')}."
+        # Deterministic, topic-grounded fallback keeps the pipeline working if generation is unusable.
+        return f"Topik yang dibahas adalah {source_title.rstrip('.!?')}."
 
-        return script
