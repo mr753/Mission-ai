@@ -201,6 +201,48 @@ def test_voiceover_accepts_natural_indonesian_narration(monkeypatch, mission_ctx
     assert mock_client.models.generate_content.call_count == 1
 
 
+
+def test_voiceover_uses_visible_headline_and_rejects_indonesian_visual_description(monkeypatch, mission_ctx):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    provider = GeminiProvider()
+    searched_topics = []
+    monkeypatch.setattr(
+        provider, "_search_web_context",
+        lambda topic: searched_topics.append(topic) or "- Berita: Rantai pasok MBG membuka peluang bagi produk lokal."
+    )
+    mock_client = MagicMock()
+    bad = MagicMock()
+    bad.text = (
+        "Poster informatif ini menyajikan teks dan infografik mengenai rantai pasok MBG. "
+        "Terdapat pula acara diskusi panel yang menampilkan sejumlah pembicara."
+    )
+    good = MagicMock()
+    good.text = (
+        "Rantai pasok MBG membuka ruang bagi produk lokal untuk masuk ke ekosistem "
+        "penyediaan pangan nasional."
+    )
+    mock_client.models.generate_content.side_effect = [bad, good]
+    provider._client = mock_client
+    analysis = ImageAnalysis(
+        summary=(
+            "An informational poster displaying text and infographics about the MBG supply chain."
+        ),
+        visible_subjects=[
+            "Text overlay in Indonesian ('Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional')",
+            "A stage panel with six individuals seated on white armchairs",
+        ],
+        visual_context="A digital graphic with a panel discussion",
+        relevant_details=[],
+    )
+
+    script = provider.generate_voiceover_script(analysis, mission_ctx)
+
+    assert searched_topics == [
+        "Rantai Pasok MBG Membuka Ruang Produk Lokal Masuk ke Ekosistem Penyediaan Pangan Nasional"
+    ]
+    assert script == good.text
+    assert mock_client.models.generate_content.call_count == 2
+
 def test_voiceover_retries_unsupported_certainty_claim(monkeypatch, mission_ctx):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     provider = GeminiProvider()
