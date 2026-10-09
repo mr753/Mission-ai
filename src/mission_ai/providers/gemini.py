@@ -213,12 +213,11 @@ class GeminiProvider(AIProvider):
                 self.parts.append(data)
 
         try:
-            # Try the complete topic first, then a shorter query if the headline is too specific.
             words = topic.split()
             queries = [topic[:240]]
             if len(words) > 6:
                 queries.append(" ".join(words[:6]))
-            lines = []
+
             for search_topic in queries:
                 query = quote_plus(search_topic)
                 url = (
@@ -233,33 +232,40 @@ class GeminiProvider(AIProvider):
                     xml_data = response.read(1_000_000)
                 root = ET.fromstring(xml_data)
                 lines = []
-                for item in root.findall(".//item")[:max_results]:
-                title = (item.findtext("title") or "").strip()
-                source_node = item.find("source")
-                source = (source_node.text or "").strip() if source_node is not None else ""
-                published = (item.findtext("pubDate") or "").strip()
-                link = (item.findtext("link") or "").strip()
-                description = unescape(item.findtext("description") or "")
-                extractor = TextExtractor()
-                extractor.feed(description)
-                snippet = " ".join(" ".join(extractor.parts).split())
-                if not title:
-                    continue
-                details = [title]
-                if source:
-                    details.append(f"Sumber: {source}")
-                if published:
-                    details.append(f"Tanggal: {published}")
-                if snippet:
-                    details.append(f"Cuplikan: {snippet[:500]}")
-                if link:
-                    details.append(f"Tautan: {link}")
-                lines.append("- " + ". ".join(details))
+                for item in root.findall(".//item"):
+                    title = (item.findtext("title") or "").strip()
+                    if not title:
+                        continue
+                    source_node = item.find("source")
+                    source = (
+                        (source_node.text or "").strip()
+                        if source_node is not None else ""
+                    )
+                    published = (item.findtext("pubDate") or "").strip()
+                    link = (item.findtext("link") or "").strip()
+                    description = unescape(item.findtext("description") or "")
+                    extractor = TextExtractor()
+                    extractor.feed(description)
+                    snippet = " ".join(" ".join(extractor.parts).split())
+
+                    details = [title]
+                    if source:
+                        details.append(f"Sumber: {source}")
+                    if published:
+                        details.append(f"Tanggal: {published}")
+                    if snippet:
+                        details.append(f"Cuplikan: {snippet[:500]}")
+                    if link:
+                        details.append(f"Tautan: {link}")
+                    lines.append("- " + ". ".join(details))
+                    if len(lines) >= max_results:
+                        break
+
                 if lines:
-                    break
-            if not lines:
-                print("Peringatan: Google News RSS tidak mengembalikan hasil yang dapat digunakan.")
-            return "\n".join(lines)
+                    return "\\n".join(lines)
+
+            print("Peringatan: Google News RSS tidak mengembalikan hasil yang dapat digunakan.")
+            return ""
         except Exception as exc:
             # Research is optional; never disable TLS verification or break the mission pipeline.
             print(
