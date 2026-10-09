@@ -235,3 +235,29 @@ def test_web_research_failure_does_not_crash_pipeline(monkeypatch, mission_ctx):
         visible_subjects=[], visual_context="", relevant_details=[]
     )
     assert provider.generate_voiceover_script(analysis, mission_ctx) == response.text
+
+
+def test_web_search_parser_extracts_title_snippet_and_url(monkeypatch):
+    from io import BytesIO
+    import urllib.request
+
+    html = b'''
+    <div class="result">
+      <a class="result__a" href="https://example.test/news">Berita MBG <span>dan produk lokal</span></a>
+      <a class="result__snippet" href="https://example.test/news">Koperasi desa didorong terhubung dengan petani lokal.</a>
+    </div>
+    '''
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self, limit):
+            return html
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: FakeResponse())
+    provider = GeminiProvider()
+    result = provider._search_web_context("MBG produk lokal")
+    assert "Berita MBG dan produk lokal" in result
+    assert "Koperasi desa didorong terhubung" in result
+    assert "https://example.test/news" in result
