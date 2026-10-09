@@ -213,20 +213,27 @@ class GeminiProvider(AIProvider):
                 self.parts.append(data)
 
         try:
-            query = quote_plus(topic[:240])
-            url = (
-                "https://news.google.com/rss/search?q="
-                f"{query}&hl=id&gl=ID&ceid=ID:id"
-            )
-            request = Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; Mission-AI/1.0)"},
-            )
-            with urlopen(request, timeout=12) as response:
-                xml_data = response.read(1_000_000)
-            root = ET.fromstring(xml_data)
+            # Try the complete topic first, then a shorter query if the headline is too specific.
+            words = topic.split()
+            queries = [topic[:240]]
+            if len(words) > 6:
+                queries.append(" ".join(words[:6]))
             lines = []
-            for item in root.findall(".//item")[:max_results]:
+            for search_topic in queries:
+                query = quote_plus(search_topic)
+                url = (
+                    "https://news.google.com/rss/search?q="
+                    f"{query}&hl=id&gl=ID&ceid=ID:id"
+                )
+                request = Request(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; Mission-AI/1.0)"},
+                )
+                with urlopen(request, timeout=12) as response:
+                    xml_data = response.read(1_000_000)
+                root = ET.fromstring(xml_data)
+                lines = []
+                for item in root.findall(".//item")[:max_results]:
                 title = (item.findtext("title") or "").strip()
                 source_node = item.find("source")
                 source = (source_node.text or "").strip() if source_node is not None else ""
@@ -248,9 +255,11 @@ class GeminiProvider(AIProvider):
                 if link:
                     details.append(f"Tautan: {link}")
                 lines.append("- " + ". ".join(details))
+                if lines:
+                    break
             if not lines:
                 print("Peringatan: Google News RSS tidak mengembalikan hasil yang dapat digunakan.")
-            return "\\n".join(lines)
+            return "\n".join(lines)
         except Exception as exc:
             # Research is optional; never disable TLS verification or break the mission pipeline.
             print(
