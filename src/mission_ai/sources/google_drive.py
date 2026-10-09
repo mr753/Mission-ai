@@ -57,9 +57,19 @@ class GoogleDriveFolderResolver:
         self._auth_mode: Optional[str] = None
         self._resource_key_header: Optional[str] = None
 
-        # User OAuth is the primary path because mission folders may be private
-        # but already shared with the operator's Google account.
-        if self._load_user_oauth_credentials():
+        # Explicit constructor credentials must override ambient environment
+        # credentials. This keeps callers and tests deterministic.
+        if access_token:
+            self._access_token = access_token
+            self._auth_mode = "access_token"
+        elif api_key:
+            self._auth_mode = "api_key"
+        elif credentials_path:
+            self._load_service_account_credentials()
+            self._auth_mode = "service_account"
+        # Otherwise, use saved user OAuth first because mission folders may be
+        # private but already shared with the operator's Google account.
+        elif self._load_user_oauth_credentials():
             self._auth_mode = "oauth"
         elif self.access_token:
             self._access_token = self.access_token
