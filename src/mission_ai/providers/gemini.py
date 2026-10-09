@@ -197,55 +197,72 @@ class GeminiProvider(AIProvider):
         return (response.text or "").strip()
 
     def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
-        client = self._get_client()
-
-        # The image-analysis summary is model-generated and can contain inferred claims.
-        # Prefer a title quoted in the summary as the factual basis for the narration.
+        """Generate Indonesian narration grounded in the source headline, not visual alt-text."""
         import re
+
+        client = self._get_client()
         summary = str(image_analysis.summary or "").strip()
-        title_match = re.search(r'["“](.{12,240}?)["”]', summary)
-        if title_match:
-            source_title = title_match.group(1).strip()
-        else:
-            source_title = summary
+        # Image analysis may wrap a headline in quotes. Prefer that exact source text.
+        title_match = re.search(r'["“]([^"”]{12,240})["”]', summary)
+        source_title = title_match.group(1).strip() if title_match else summary
+        if not source_title:
+            source_title = str(mission_context.main_message or "").strip()
+        if not source_title:
+            raise ValueError("No source title or mission topic is available for voice-over.")
 
         prompt = (
-            "Buat voice-over bahasa Indonesia yang natural, siap dibacakan, maksimal dua kalimat. "
-            "Gunakan judul/topik di bawah sebagai satu-satunya sumber fakta. Jangan menggunakan detail lain dari gambar, "
-            "jangan mengembangkan judul menjadi mekanisme, sebab-akibat, manfaat, peran, keberhasilan, proses operasional, "
-            "pengawasan, atau kegiatan yang tidak tertulis secara eksplisit pada judul. "
-            "Jangan menambahkan konteks acara atau menjelaskan foto. Jangan membuat klaim baru demi membuat narasi lebih panjang. "
-            "Hindari pembuka klise. Keluarkan hanya naskah, tanpa analisis, judul tambahan, markdown, atau catatan.\n\n"
-            f"JUDUL/TOPIK SUMBER: {source_title}"
+            "Tulis voice-over untuk konten media sosial dalam BAHASA INDONESIA. "
+            "Buat 1–2 kalimat yang terdengar seperti orang Indonesia berbicara secara alami. "
+            "Jadikan judul sumber sebagai topik utama; parafrasekan secara lisan, bukan sekadar membaca judul. "
+            "JANGAN mendeskripsikan poster, gambar, warna, poin bernomor, foto, atau tata letak. "
+            "JANGAN memakai bahasa Inggris. Jangan mengarang sebab-akibat, mekanisme, manfaat, keberhasilan, "
+            "peran organisasi, kegiatan acara, atau fakta lain yang tidak tertulis pada judul sumber. "
+            "Jangan gunakan pembuka klise seperti 'Pernahkah Anda...' atau 'Tahukah kamu...'. "
+            "Keluarkan hanya naskah narasi, tanpa judul, analisis, markdown, atau catatan.\n\n"
+            f"JUDUL SUMBER (fakta yang boleh digunakan): {source_title}\n"
+            f"ARAH MISI: {mission_context.main_message}"
         )
-        response = self._call_with_retry(
-            client.models.generate_content,
-            model=self.model_name,
-            contents=prompt
-        )
-        script = (response.text or "").strip()
-        if not script:
-            raise ValueError("Gemini returned an empty voice-over script.")
 
-        # Strip common analysis headings/notes if the model ignores the output format.
-        script = re.split(
-            r"\n\s*(?:\*{1,2}|#{1,6})?\s*(?:analisis fakta|fakta vs\.? interpretasi|interpretasi yang dihindari|catatan:|analisis:)\s*",
-            script,
-            maxsplit=1,
-            flags=re.IGNORECASE,
-        )[0].strip()
-        script = re.sub(r"^\s*(?:\*{1,2}|#{1,6})?\s*(?:naskah voice[- ]?over|voice[- ]?over)\s*(?:\*{1,2}|#{1,6})?\s*:?\s*", "", script, flags=re.IGNORECASE)
-        script = re.sub(r"^\s*[-*]\s+", "", script, flags=re.MULTILINE).strip()
+        script = ""
+        # One retry gives the model a chance to correct English or image-alt-text output.
+        for attempt in range(2):
+            response = self._call_with_retry(
+                client.models.generate_content,
+                model=self.model_name,
+                contents=prompt if attempt == 0 else (
+                    prompt + "\n\nPERBAIKI: hasil sebelumnya tidak valid. "
+                    "Tulis narasi lisan berbahasa Indonesia tentang topik judul saja; "
+                    "jangan deskripsikan tampilan gambar dan jangan menambah fakta."
+                ),
+            )
+            candidate = (response.text or "").strip()
+            candidate = re.split(
+                r"\n\s*(?:\*{1,2}|#{1,6})?\s*(?:analisis fakta|fakta vs\.? interpretasi|interpretasi yang dihindari|catatan:|analisis:)\s*",
+                candidate,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0].strip()
+            candidate = re.sub(
+                r"^\s*(?:\*{1,2}|#{1,6})?\s*(?:naskah voice[- ]?over|voice[- ]?over)\s*(?:\*{1,2}|#{1,6})?\s*:?\s*",
+                "", candidate, flags=re.IGNORECASE,
+            )
+            candidate = re.sub(r"^\s*[-*]\s+", "", candidate, flags=re.MULTILINE).strip()
 
-        # Reject known unsupported extrapolations rather than shipping them as narration.
-        unsupported_claim_patterns = (
-            r"rantai pasok.{0,80}(?:membuka ruang|ekosistem|operasional|pengadaan regional)",
-            r"(?:peran koperasi|koperasi sebagai penghubung)",
-            r"(?:pengawasan|mencegah monopoli|manfaat ekonomi|memastikan kesejahteraan)",
-            r"(?:forum diskusi pemaparan laporan|laporan dengan berbagai narasumber)",
-        )
-        if any(re.search(pattern, script, flags=re.IGNORECASE) for pattern in unsupported_claim_patterns):
-            script = source_title.rstrip(".!?") + "."
+            lower = candidate.lower()
+            invalid_markers = (
+                "an informational poster", "this image", "the image", "the picture",
+                "the photograph", "numbered points", "visual layout", "a photograph of",
+                "this poster", "the poster displays", "the poster shows",
+            )
+            english_markers = ("the headline", "with three", "at the bottom", "this informational", "displaying the headline")
+            looks_like_image_description = any(marker in lower for marker in invalid_markers)
+            looks_english = any(marker in lower for marker in english_markers)
+            if candidate and not looks_like_image_description and not looks_english:
+                script = candidate
+                break
+
+        # Safe deterministic fallback: Indonesian, topic-based, and makes no extra factual claims.
         if not script:
-            raise ValueError("Gemini returned no narration after cleaning its response.")
+            script = f"Topik yang diangkat adalah {source_title.rstrip('.!?')}."
+
         return script
