@@ -206,19 +206,15 @@ class GeminiProvider(AIProvider):
             f"DETAIL GAMBAR: {', '.join(image_analysis.relevant_details)}"
         )
         prompt = (
-            "Buat voice-over pendek untuk konten ini. Sebelum menulis, bedakan fakta yang benar-benar tertulis/terlihat "
-            "dari interpretasi model.\n\n"
-            f"SUMBER:\\n{source}\\n\\n"
-            "BATAS WAJIB:\\n"
-            "1. Jangan menambahkan fakta, hubungan sebab-akibat, mekanisme, atau penjelasan yang tidak dinyatakan secara eksplisit dalam sumber.\\n"
-            "2. Jangan menganggap kata yang muncul di topik sebagai bukti bahwa proses, peran, pengawasan, manfaat, atau dampak tertentu benar-benar ada.\\n"
-            "3. Jangan menyebut 'perancangan rantai pasok', 'koperasi sebagai penghubung', 'pengawasan', 'mencegah monopoli', atau 'manfaat ekonomi' kecuali frasa/maknanya benar-benar ada di sumber yang diberikan.\\n"
-            "4. Jangan menyimpulkan dari instruksi mission. Instruksi adalah tugas yang harus dilakukan, bukan bukti tentang fakta pada gambar.\\n"
-            "5. Jangan mengubah dorongan/tujuan menjadi klaim bahwa sesuatu sudah berjalan atau berhasil.\\n"
-            "6. Jangan mendeskripsikan layout, jumlah orang, panggung, warna, atau bentuk gambar.\\n"
-            "7. Jika sumber tidak cukup untuk penjelasan lebih jauh, cukup sebut topik dan pihak yang disebut, lalu berhenti. Jangan mengisi kekosongan dengan dugaan.\\n\\n"
-            "GAYA: 1-2 kalimat bahasa Indonesia lisan yang natural, langsung, tidak kaku. Jangan mengejar durasi. "
-            "Tanpa pembuka klise, emoji, hashtag, judul, atau catatan. Keluarkan hanya naskah final."
+            "Tulis naskah voice-over konten singkat dalam bahasa Indonesia yang lisan, natural, dan menarik.\n"
+            "Gunakan hanya fakta yang didukung secara langsung oleh SUMBER. Topik atau instruksi misi bukan bukti bahwa suatu proses, peran, dampak, atau keberhasilan benar-benar terjadi. "
+            "Jangan menambahkan hubungan sebab-akibat, mekanisme ekonomi, manfaat, pengawasan, atau detail yang tidak didukung sumber.\n"
+            "Jangan mendeskripsikan tampilan poster, layout, warna, jumlah orang, panggung, atau foto sebagai pengganti narasi. "
+            "Jangan mengulang judul begitu saja. Sampaikan pesan utama secara jelas; bila sumber hanya mendukung satu fakta, kembangkan dengan bahasa yang wajar tanpa menambah fakta baru.\n"
+            "FORMAT KELUARAN WAJIB: keluarkan hanya 1 atau 2 kalimat naskah yang siap dibacakan. "
+            "Dilarang mengeluarkan analisis, label, judul, bullet, markdown, catatan, disclaimer, atau bagian 'fakta vs interpretasi'. "
+            "Jangan gunakan pembuka klise seperti 'Pernahkah Anda...' atau 'Pernah mikir nggak...'.\n\n"
+            f"SUMBER:\n{source}"
         )
         response = self._call_with_retry(
             client.models.generate_content,
@@ -228,4 +224,17 @@ class GeminiProvider(AIProvider):
         script = (response.text or "").strip()
         if not script:
             raise ValueError("Gemini returned an empty voice-over script.")
+
+        # Keep only narration if the model adds analysis headings or notes.
+        import re
+        script = re.sub(r"^\s*(?:\*{1,2}|#{1,6})?\s*(?:analisis fakta(?:\s+vs\.?\s+interpretasi)?|fakta vs\.? interpretasi|naskah voice[- ]?over)\s*(?:\*{1,2}|#{1,6})?\s*:?\s*", "", script, flags=re.IGNORECASE)
+        script = re.split(
+            r"\n\s*(?:\*{1,2}|#{1,6})?\s*(?:analisis fakta|fakta vs\.? interpretasi|interpretasi yang dihindari|catatan:|analisis:)\s*",
+            script,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip()
+        script = re.sub(r"^\s*[-*]\s+", "", script, flags=re.MULTILINE).strip()
+        if not script:
+            raise ValueError("Gemini returned no narration after removing analysis text.")
         return script
