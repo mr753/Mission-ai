@@ -198,23 +198,25 @@ class GeminiProvider(AIProvider):
 
     def generate_voiceover_script(self, image_analysis: ImageAnalysis, mission_context: MissionContext) -> str:
         client = self._get_client()
-        source = (
-            f"TOPIK MISI: {mission_context.main_message}\n"
-            f"POIN MISI: {', '.join(mission_context.key_points)}\n"
-            f"RINGKASAN GAMBAR: {image_analysis.summary}\n"
-            f"SUBJEK TERLIHAT: {image_analysis.visible_subjects}\n"
-            f"DETAIL GAMBAR: {', '.join(image_analysis.relevant_details)}"
-        )
+
+        # The image-analysis summary is model-generated and can contain inferred claims.
+        # Prefer a title quoted in the summary as the factual basis for the narration.
+        import re
+        summary = str(image_analysis.summary or "").strip()
+        title_match = re.search(r'["“](.{12,240}?)["”]', summary)
+        if title_match:
+            source_title = title_match.group(1).strip()
+        else:
+            source_title = summary
+
         prompt = (
-            "Tulis naskah voice-over konten singkat dalam bahasa Indonesia yang lisan, natural, dan menarik.\n"
-            "Gunakan hanya fakta yang didukung secara langsung oleh SUMBER. Topik atau instruksi misi bukan bukti bahwa suatu proses, peran, dampak, atau keberhasilan benar-benar terjadi. "
-            "Jangan menambahkan hubungan sebab-akibat, mekanisme ekonomi, manfaat, pengawasan, atau detail yang tidak didukung sumber.\n"
-            "Jangan mendeskripsikan tampilan poster, layout, warna, jumlah orang, panggung, atau foto sebagai pengganti narasi. "
-            "Jangan mengulang judul begitu saja. Sampaikan pesan utama secara jelas; bila sumber hanya mendukung satu fakta, kembangkan dengan bahasa yang wajar tanpa menambah fakta baru.\n"
-            "FORMAT KELUARAN WAJIB: keluarkan hanya 1 atau 2 kalimat naskah yang siap dibacakan. "
-            "Dilarang mengeluarkan analisis, label, judul, bullet, markdown, catatan, disclaimer, atau bagian 'fakta vs interpretasi'. "
-            "Jangan gunakan pembuka klise seperti 'Pernahkah Anda...' atau 'Pernah mikir nggak...'.\n\n"
-            f"SUMBER:\n{source}"
+            "Buat voice-over bahasa Indonesia yang natural, siap dibacakan, maksimal dua kalimat. "
+            "Gunakan judul/topik di bawah sebagai satu-satunya sumber fakta. Jangan menggunakan detail lain dari gambar, "
+            "jangan mengembangkan judul menjadi mekanisme, sebab-akibat, manfaat, peran, keberhasilan, proses operasional, "
+            "pengawasan, atau kegiatan yang tidak tertulis secara eksplisit pada judul. "
+            "Jangan menambahkan konteks acara atau menjelaskan foto. Jangan membuat klaim baru demi membuat narasi lebih panjang. "
+            "Hindari pembuka klise. Keluarkan hanya naskah, tanpa analisis, judul tambahan, markdown, atau catatan.\n\n"
+            f"JUDUL/TOPIK SUMBER: {source_title}"
         )
         response = self._call_with_retry(
             client.models.generate_content,
@@ -225,16 +227,25 @@ class GeminiProvider(AIProvider):
         if not script:
             raise ValueError("Gemini returned an empty voice-over script.")
 
-        # Keep only narration if the model adds analysis headings or notes.
-        import re
-        script = re.sub(r"^\s*(?:\*{1,2}|#{1,6})?\s*(?:analisis fakta(?:\s+vs\.?\s+interpretasi)?|fakta vs\.? interpretasi|naskah voice[- ]?over)\s*(?:\*{1,2}|#{1,6})?\s*:?\s*", "", script, flags=re.IGNORECASE)
+        # Strip common analysis headings/notes if the model ignores the output format.
         script = re.split(
             r"\n\s*(?:\*{1,2}|#{1,6})?\s*(?:analisis fakta|fakta vs\.? interpretasi|interpretasi yang dihindari|catatan:|analisis:)\s*",
             script,
             maxsplit=1,
             flags=re.IGNORECASE,
         )[0].strip()
+        script = re.sub(r"^\s*(?:\*{1,2}|#{1,6})?\s*(?:naskah voice[- ]?over|voice[- ]?over)\s*(?:\*{1,2}|#{1,6})?\s*:?\s*", "", script, flags=re.IGNORECASE)
         script = re.sub(r"^\s*[-*]\s+", "", script, flags=re.MULTILINE).strip()
+
+        # Reject known unsupported extrapolations rather than shipping them as narration.
+        unsupported_claim_patterns = (
+            r"rantai pasok.{0,80}(?:membuka ruang|ekosistem|operasional|pengadaan regional)",
+            r"(?:peran koperasi|koperasi sebagai penghubung)",
+            r"(?:pengawasan|mencegah monopoli|manfaat ekonomi|memastikan kesejahteraan)",
+            r"(?:forum diskusi pemaparan laporan|laporan dengan berbagai narasumber)",
+        )
+        if any(re.search(pattern, script, flags=re.IGNORECASE) for pattern in unsupported_claim_patterns):
+            script = source_title.rstrip(".!?") + "."
         if not script:
-            raise ValueError("Gemini returned no narration after removing analysis text.")
+            raise ValueError("Gemini returned no narration after cleaning its response.")
         return script
