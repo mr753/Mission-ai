@@ -208,19 +208,28 @@ class GeminiProvider(AIProvider):
                 self.results = []
                 self._current = None
                 self._capture = None
+                self._capture_tag = None
+                self._capture_depth = 0
                 self._buffer = []
 
             def handle_starttag(self, tag, attrs):
                 attrs = dict(attrs)
                 classes = attrs.get("class", "").split()
+                if self._capture:
+                    self._capture_depth += 1
+                    return
                 if tag == "a" and "result__a" in classes:
                     self._current = {"title": "", "url": attrs.get("href", "")}
                     self._capture = "title"
+                    self._capture_tag = tag
+                    self._capture_depth = 1
                     self._buffer = []
-                elif self._current and tag in ("a", "div", "span") and (
+                elif self._current and (
                     "result__snippet" in classes or "result__body" in classes
                 ):
                     self._capture = "snippet"
+                    self._capture_tag = tag
+                    self._capture_depth = 1
                     self._buffer = []
 
             def handle_data(self, data):
@@ -230,19 +239,23 @@ class GeminiProvider(AIProvider):
             def handle_endtag(self, tag):
                 if not self._capture:
                     return
+                self._capture_depth -= 1
+                if self._capture_depth > 0 or tag != self._capture_tag:
+                    return
                 text = " ".join(" ".join(self._buffer).split())
-                if self._capture == "title" and tag == "a" and self._current:
-                    self._current["title"] = text
-                    self._capture = None
-                    self._buffer = []
-                elif self._capture == "snippet" and tag in ("div", "span") and self._current:
-                    if text:
+                finished_capture = self._capture
+                self._capture = None
+                self._capture_tag = None
+                self._capture_depth = 0
+                self._buffer = []
+                if self._current and text:
+                    if finished_capture == "title":
+                        self._current["title"] = text
+                    elif finished_capture == "snippet":
                         self._current["snippet"] = text
-                    self._capture = None
-                    self._buffer = []
-                    if self._current.get("title") and self._current.get("snippet"):
-                        self.results.append(self._current)
-                        self._current = None
+                if self._current and self._current.get("title") and self._current.get("snippet"):
+                    self.results.append(self._current)
+                    self._current = None
 
         try:
             query = quote_plus(topic[:240])
