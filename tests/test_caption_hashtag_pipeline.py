@@ -48,6 +48,16 @@ class MockCaptionProvider:
         return "Voiceover script"
 
 
+class MockTTSProvider:
+    """Write deterministic audio bytes so pipeline tests do not depend on host TTS."""
+
+    def synthesize(self, script_text: str, output_path: str) -> str:
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"mock audio")
+        return str(output)
+
+
 @pytest.fixture
 def app_config(tmp_path):
     return AppConfig(
@@ -78,7 +88,7 @@ def test_caption_generation_one_image(app_config, sample_mission, tmp_path):
     Image.new("RGB", (32, 32), color="green").save(img)
 
     provider = MockCaptionProvider()
-    runner = MissionRunner(app_config, provider=provider, video_generator=lambda *a, **kw: True, progress=lambda m: None)
+    runner = MissionRunner(app_config, provider=provider, tts_provider=MockTTSProvider(), video_generator=lambda *a, **kw: True, progress=lambda m: None)
 
     summary = runner.run(sample_mission, str(img), str(app_config.output_directory))
     assert summary.completed == 1
