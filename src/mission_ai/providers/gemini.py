@@ -217,6 +217,10 @@ class GeminiProvider(AIProvider):
             queries = [topic[:240]]
             if len(words) > 6:
                 queries.append(" ".join(words[:6]))
+            if len(words) > 3:
+                queries.append(" ".join(words[:3]))
+            # Keep order while removing duplicate queries.
+            queries = list(dict.fromkeys(q.strip() for q in queries if q.strip()))
 
             for search_topic in queries:
                 query = quote_plus(search_topic)
@@ -264,7 +268,10 @@ class GeminiProvider(AIProvider):
                 if lines:
                     return "\n".join(lines)
 
-            print("Peringatan: Google News RSS tidak mengembalikan hasil yang dapat digunakan.")
+            print(
+                "Peringatan: Google News RSS tidak mengembalikan hasil yang dapat digunakan. "
+                f"Topik pencarian: {topic[:120]!r}"
+            )
             return ""
         except Exception as exc:
             # Research is optional; never disable TLS verification or break the mission pipeline.
