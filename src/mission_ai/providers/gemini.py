@@ -186,15 +186,74 @@ class GeminiProvider(AIProvider):
         return index
 
     def generate_caption(self, image_analysis: ImageAnalysis, mission_context: MissionContext, platform: str) -> str:
+        """Generate an engaging caption without adding facts absent from the image analysis."""
+        import re
+
         client = self._get_client()
-        prompt = (f"Generate a {platform} caption grounded in this analysis: {image_analysis.summary}. "
-                  f"Mission context: {mission_context.main_message}. Return text only.")
-        response = self._call_with_retry(
-            client.models.generate_content,
-            model=self.model_name,
-            contents=prompt
+        summary = str(image_analysis.summary or "").strip()
+        visible_subjects = [str(item).strip() for item in (image_analysis.visible_subjects or []) if str(item).strip()]
+        relevant_details = [str(item).strip() for item in (image_analysis.relevant_details or []) if str(item).strip()]
+
+        # Prefer an actual headline read from the image, not the model's visual description.
+        source_title = ""
+        for subject in visible_subjects:
+            if not re.search(r"text overlay|teks|judul|headline|tertulis", subject, re.IGNORECASE):
+                continue
+            match = re.search(r"""['"“]([^'"”]{12,240})['"”]""", subject)
+            if match:
+                source_title = match.group(1).strip()
+                break
+        if not source_title:
+            match = re.search(r"""['"“]([^'"”]{12,240})['"”]""", summary)
+            source_title = match.group(1).strip() if match else summary
+        if not source_title:
+            source_title = str(mission_context.main_message or "").strip()
+
+        facts = {
+            "judul/topik": source_title,
+            "ringkasan visual": summary,
+            "subjek terlihat": visible_subjects,
+            "detail terlihat": relevant_details,
+        }
+        prompt = (
+            f"Buat caption {platform} dalam bahasa Indonesia yang menarik, singkat, natural, dan positif. "
+            "Gunakan hanya fakta yang benar-benar didukung data di bawah. Judul boleh dijadikan topik, "
+            "tetapi jangan menganggap klaim dalam judul sebagai bukti hasil atau dampak yang sudah terjadi. "
+            "Jangan mengarang tanggal/waktu, lokasi, nama atau keahlian pembicara, kutipan, angka, penyebab, "
+            "keberhasilan program, manfaat, dampak, transparansi, efisiensi, atau ajakan yang mengandaikan "
+            "fakta yang tidak tersedia. Jangan menyebut 'kemarin' atau menyebut seseorang sebagai pakar "
+            "tanpa bukti. Jangan mendeskripsikan poster secara berlebihan. Boleh gunakan satu pertanyaan "
+            "atau ajakan netral, serta emoji/hashtag relevan. Keluarkan caption saja.\n\n"
+            f"DATA SUMBER:\n{json.dumps(facts, ensure_ascii=False)}\n\n"
+            f"ARAH MISI:\n{mission_context.main_message}"
         )
-        return (response.text or "").strip()
+
+        invalid_markers = (
+            "kemarin", "para pakar", "pakar inspiratif", "sudah terbukti",
+            "terbukti meningkatkan", "memastikan", "menjamin", "makin transparan",
+            "lebih transparan", "rantai pasok yang efisien", "pasokan yang efisien",
+            "dampak positif yang berkelanjutan", "masa depan bangsa yang lebih sehat",
+            "masa depan yang lebih sehat", "berhasil meningkatkan",
+        )
+        for attempt in range(2):
+            retry_prompt = prompt
+            if attempt:
+                retry_prompt += (
+                    "\n\nTulis ulang. Hapus setiap klaim yang tidak tertulis secara eksplisit "
+                    "dalam data sumber; jangan mengarang waktu, kualitas, hasil, atau dampak."
+                )
+            response = self._call_with_retry(
+                client.models.generate_content,
+                model=self.model_name,
+                contents=retry_prompt,
+            )
+            candidate = (response.text or "").strip()
+            if candidate and not any(marker in candidate.lower() for marker in invalid_markers):
+                return candidate
+
+        # Safe fallback: make no claim beyond the identified topic.
+        topic = source_title.rstrip(".!?")
+        return f"{topic}. Kenali lebih dekat topik ini."
 
     def _search_web_context(self, topic: str, max_results: int = 4) -> str:
         """Fetch Google News RSS results as optional research context."""
