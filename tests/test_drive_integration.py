@@ -20,7 +20,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import google.auth.transport.requests  # Ensure the submodule is loaded before patching its Request class.
 from PIL import Image
 
 from mission_ai.config import AppConfig
@@ -189,13 +188,18 @@ def test_refresh_access_token_uses_google_auth_transport():
     resolver = GoogleDriveFolderResolver.__new__(GoogleDriveFolderResolver)
     resolver._credentials = MagicMock()
     
-    # Mock google.auth.transport.requests.Request
-    with patch("google.auth.transport.requests.Request") as mock_req_cls:
+    # Inject a fake transport module so the test does not load optional
+    # cryptography binaries that may be unavailable on Android/Termux Python.
+    from types import SimpleNamespace
+
+    mock_req_cls = MagicMock()
+    fake_transport = SimpleNamespace(Request=mock_req_cls)
+    with patch.dict("sys.modules", {"google.auth.transport.requests": fake_transport}):
         mock_req_inst = mock_req_cls.return_value
         resolver._refresh_access_token()
-        
-        mock_req_cls.assert_called_once_with()
-        resolver._credentials.refresh.assert_called_once_with(mock_req_inst)
+
+    mock_req_cls.assert_called_once_with()
+    resolver._credentials.refresh.assert_called_once_with(mock_req_inst)
 
 
 # ---------------------------------------------------------------- access token path (2F) ---
