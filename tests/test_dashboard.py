@@ -142,3 +142,77 @@ def test_dashboard_missing_optional_output_safely(client, app_config):
     assert len(posts) == 1
     assert posts[0]["image_id"] == job_id
     assert posts[0].get("voiceover_script") is None
+
+
+def test_dashboard_accounts_api(client):
+    response = client.get("/api/accounts")
+    assert response.status_code == 200
+    data = response.json()
+    assert "accounts" in data
+    accounts = data["accounts"]
+    platforms = {a["platform"] for a in accounts}
+    assert {"youtube", "instagram", "facebook", "x", "threads"}.issubset(platforms)
+    for a in accounts:
+        assert "status" in a
+        assert "has_credential_ref" in a
+        assert "credential_ref" not in a
+        assert a["status"] == "disconnected"
+
+
+def test_mission_deletion_success(client, app_config):
+    mission_id = "MISSION-TO-DELETE"
+    mission_dir = Path(app_config.output_directory) / mission_id
+    mission_dir.mkdir(parents=True, exist_ok=True)
+    (mission_dir / "checkpoint.json").write_text('{"job_1": "COMPLETED"}')
+
+    assert mission_dir.exists()
+    resp = client.delete(f"/api/missions/{mission_id}")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "deleted"
+    assert not mission_dir.exists()
+
+
+def test_mission_deletion_not_found(client):
+    resp = client.delete("/api/missions/NON-EXISTENT-MISSION")
+    assert resp.status_code == 404
+
+
+def test_mission_deletion_path_traversal(client):
+    resp = client.delete("/api/missions/..%2Fetc")
+    assert resp.status_code in (400, 404, 422)
+
+
+def test_mission_deletion_processing_refused(client, app_config):
+    mission_id = "MISSION-PROCESSING"
+    mission_dir = Path(app_config.output_directory) / mission_id
+    mission_dir.mkdir(parents=True, exist_ok=True)
+    (mission_dir / "checkpoint.json").write_text('{"job_1": "PROCESSING"}')
+
+    resp = client.delete(f"/api/missions/{mission_id}")
+    assert resp.status_code == 400
+    assert "processing" in resp.json()["detail"].lower()
+    assert mission_dir.exists()
+    import shutil
+    shutil.rmtree(mission_dir)
+
+
+def test_mission_activity_log(client, app_config):
+    mission_id = "MISSION-ACTIVITY"
+    mission_dir = Path(app_config.output_directory) / mission_id
+    mission_dir.mkdir(parents=True, exist_ok=True)
+    log_data = {
+        "mission_id": mission_id,
+        "stages": [
+            {"stage_name": "Mission Initialization", "status": "COMPLETED", "timestamp": "2026-10-10T00:00:00Z", "message": "Initialized"}
+        ]
+    }
+    (mission_dir / "activity_log.json").write_text(json.dumps(log_data))
+
+    resp = client.get(f"/api/missions/{mission_id}/activity")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mission_id"] == mission_id
+    assert len(data["stages"]) == 1
+    assert data["stages"][0]["stage_name"] == "Mission Initialization"
+    import shutil
+    shutil.rmtree(mission_dir)

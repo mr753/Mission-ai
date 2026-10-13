@@ -1,0 +1,105 @@
+from pathlib import Path
+from typing import List, Optional, Dict, Any
+from mission_ai.models import ContentPackage, PlatformContent, ImageAnalysis, JobStatus
+from mission_ai.upload.models import UploadJob, UploadResult, BatchUploadResult
+from mission_ai.upload.registry import get_platform_adapter, list_supported_platforms
+
+class UploadWorker:
+    def __init__(self, credentials_map: Optional[Dict[str, Dict[str, Any]]] = None):
+        self.credentials_map = credentials_map or {}
+
+    def process_job(self, job: UploadJob) -> BatchUploadResult:
+        """Process an upload job by validating, resolving adapters, and executing stub uploads with failure isolation."""
+        if not job or not job.mission_id or not job.video_path or not job.selected_platforms:
+            raise ValueError("Invalid or empty upload job: mission_id, video_path, and selected_platforms are required.")
+
+        # Validate video path exists
+        video_p = Path(job.video_path)
+        if not video_p.exists():
+            raise ValueError(f"Video path does not exist: {job.video_path}")
+
+        # Construct ContentPackage from UploadJob
+        captions = [
+            PlatformContent(
+                platform=p,
+                caption=job.caption,
+                hashtags=job.hashtags,
+                title=job.title,
+                description=job.description
+            )
+            for p in job.selected_platforms
+        ]
+
+        package = ContentPackage(
+            image_id=job.mission_id,
+            source_path=job.video_path,
+            analysis=ImageAnalysis(summary="Upload Job Content", visible_subjects=[], visual_context="", relevant_details=[]),
+            captions=captions,
+            status=JobStatus.COMPLETED,
+            video_path=job.video_path
+        )
+
+        results: List[UploadResult] = []
+        success_count = 0
+        simulated_count = 0
+        failure_count = 0
+        not_configured_count = 0
+
+        for platform in job.selected_platforms:
+            try:
+                adapter = get_platform_adapter(platform)
+                creds = self.credentials_map.get(platform) or job.platform_specific_data.get(platform)
+                res = adapter.upload(package, credentials=creds)
+                results.append(res)
+                if res.status == "success":
+                    success_count += 1
+                elif res.status in ("stub_success", "simulated"):
+                    simulated_count += 1
+                elif res.status == "not_configured":
+                    not_configured_count += 1
+                else:
+                    failure_count += 1
+            except Exception as e:
+                # Isolate failure so other platforms are still attempted
+                err_res = UploadResult(
+                    platform=platform,
+                    status="failed",
+                    error=str(e),
+                    message=f"Upload failed for platform {platform} due to exception: {e}"
+                )
+                results.append(err_res)
+                failure_count += 1
+
+        return BatchUploadResult(
+            mission_id=job.mission_id,
+            results=results,
+            success_count=success_count,
+            simulated_count=simulated_count,
+            failure_count=failure_count,
+            not_configured_count=not_configured_count
+        )
+
+    def process_package(self, mission_id: str, package: ContentPackage, selected_platforms: List[str]) -> BatchUploadResult:
+        """Helper to process a ContentPackage directly as an UploadJob."""
+        caption_text = ""
+        hashtags = []
+        title = None
+        description = None
+
+        if package.captions:
+            cap_obj = package.captions[0]
+            caption_text = cap_obj.caption
+            hashtags = cap_obj.hashtags
+            title = cap_obj.title
+            description = cap_obj.description
+
+        job = UploadJob(
+            mission_id=mission_id,
+            video_path=package.video_path or package.source_path,
+            caption=caption_text,
+            hashtags=hashtags,
+            selected_platforms=selected_platforms,
+            title=title,
+            description=description
+        )
+        return self.process_job(job)

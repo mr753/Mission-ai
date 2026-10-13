@@ -1,4 +1,6 @@
 import os
+import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -6,6 +8,13 @@ from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    force=False,
+)
 
 
 @dataclass
@@ -23,6 +32,8 @@ class AppConfig:
     supabase_url: Optional[str] = os.getenv("SUPABASE_URL")
     supabase_key: Optional[str] = os.getenv("SUPABASE_KEY")
     enable_supabase_sink: bool = os.getenv("ENABLE_SUPABASE_SINK", "false").lower() == "true"
+    tts_provider: str = os.getenv("TTS_PROVIDER", "edge")
+    tts_voice: str = os.getenv("TTS_VOICE", "id-ID-GadisNeural")
 
 
 def load_config() -> AppConfig:

@@ -72,7 +72,7 @@ def test_is_google_drive_url():
     assert is_google_drive_url("https://drive.google.com/drive/folders/test123?usp=sharing") is True
     # Subpath
     assert is_google_drive_url("https://drive.google.com/drive/folders/test123/sub") is True
-    
+
     # Negative/non-Google-Drive URL
     assert is_google_drive_url("C:/Users/someone/images") is False
     assert is_google_drive_url("./input") is False
@@ -123,7 +123,7 @@ def test_api_request_query_encodes_spaces_quotes_and_unicode(tmp_path, value_lab
 
 def test_resolver_extracts_folder_id_variants(tmp_path):
     resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive", access_token="tok")
-    
+
     # plain URL
     assert resolver._extract_folder_id("https://drive.google.com/drive/folders/ID123") == "ID123"
     # trailing slash
@@ -136,7 +136,7 @@ def test_resolver_extracts_folder_id_variants(tmp_path):
     assert resolver._extract_folder_id("https://drive.google.com/drive/u/0/folders/ID456") == "ID456"
     # /U/0/folders/<ID>
     assert resolver._extract_folder_id("https://drive.google.com/drive/U/0/folders/ID789") == "ID789"
-    
+
     # also support the drive/googleusercontent.com variant requested in prompt
     assert resolver._extract_folder_id("https://drive/googleusercontent.com/drive/folders/ID000") == "ID000"
 
@@ -147,20 +147,20 @@ def test_resolver_extracts_folder_id_variants(tmp_path):
 def test_resolver_resolve_calls_extractor_on_url(tmp_path):
     cfg = make_config(tmp_path)
     resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "downloads", access_token="tok")
-    
+
     with patch.object(GoogleDriveFolderResolver, "_extract_folder_id", return_value="f123") as mock_extract, \
          patch.object(GoogleDriveFolderResolver, "_list_files_in_folder", return_value=[
              {"id": "i1", "name": "img1.png", "mimeType": "image/png"},
              {"id": "i2", "name": "img2.jpg", "mimeType": "image/jpeg"}
          ]), \
          patch.object(GoogleDriveFolderResolver, "_download_file", side_effect=lambda f: tmp_path / f["name"]):
-        
+
         # Create dummy files with different content
         img1 = tmp_path / "img1.png"
         img2 = tmp_path / "img2.jpg"
         Image.new("RGB", (16, 16), color="red").save(img1)
         Image.new("RGB", (16, 16), color="blue").save(img2)
-        
+
         paths = resolver.resolve(DRIVE_U0_URL)
         mock_extract.assert_called_once_with(DRIVE_U0_URL)
         assert len(paths) == 2
@@ -169,7 +169,7 @@ def test_resolver_resolve_calls_extractor_on_url(tmp_path):
     mission_file = write_mission(tmp_path / "mission.json")
     runner = MissionRunner(cfg, provider=FakeProvider(),
                            video_generator=fake_video_gen, progress=lambda m: None)
-    
+
     img1 = tmp_path / "img1.png"
     img2 = tmp_path / "img2.jpg"
     Image.new("RGB", (16, 16), color="red").save(img1)
@@ -177,7 +177,7 @@ def test_resolver_resolve_calls_extractor_on_url(tmp_path):
 
     with patch("mission_ai.sources.google_drive.GoogleDriveFolderResolver.resolve", return_value=[img1, img2]):
         summary = runner.run(str(mission_file), DRIVE_U0_URL, str(cfg.output_directory))
-    
+
     assert summary.total_jobs == 2
 
 
@@ -187,7 +187,7 @@ def test_resolver_resolve_calls_extractor_on_url(tmp_path):
 def test_refresh_access_token_uses_google_auth_transport():
     resolver = GoogleDriveFolderResolver.__new__(GoogleDriveFolderResolver)
     resolver._credentials = MagicMock()
-    
+
     # Inject a fake transport module so the test does not load optional
     # cryptography binaries that may be unavailable on Android/Termux Python.
     from types import SimpleNamespace
@@ -209,7 +209,7 @@ def test_access_token_path_works_without_third_party(tmp_path):
     # Use a writable temporary directory (Termux may not allow /tmp/drive).
     resolver = GoogleDriveFolderResolver(download_dir=tmp_path / "drive", access_token="tok123")
     assert resolver._access_token == "tok123"
-    
+
     # Verify it doesn't try to refresh if token is present
     resolver._credentials = MagicMock()
     with patch.object(resolver, "_refresh_access_token") as mock_refresh:
@@ -228,7 +228,7 @@ def test_missing_auth_raises_value_error(tmp_path):
             download_dir=tmp_path / "drive",
             oauth_token_path=str(tmp_path / "missing-token.json"),
         )
-        with pytest.raises(ValueError, match="Google Drive access is not configured"):
+        with pytest.raises(ValueError, match="Google Drive authentication required"):
             resolver.resolve(DRIVE_URL)
 
 

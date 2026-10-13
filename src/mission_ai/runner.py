@@ -15,6 +15,9 @@ network, AI API, or real FFmpeg is required.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional
+import json
+import logging
+from datetime import datetime, timezone
 
 from mission_ai.config import AppConfig
 from mission_ai.models import ContentPackage, ImageAnalysis, ImageJob, JobStatus, MissionContext, PlatformContent
@@ -27,6 +30,8 @@ from mission_ai.jobs.checkpoint import CheckpointManager
 from mission_ai.music_selector import select_music
 from mission_ai.output_manager import OutputManager
 from mission_ai.video_generator import image_to_video
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 DEFAULT_PLATFORM = "instagram"
@@ -100,15 +105,45 @@ class MissionRunner:
     @property
     def tts_provider(self):
         if self._tts_provider is None:
-            from mission_ai.providers.pyttsx3 import PyTTSX3Provider
-            self._tts_provider = PyTTSX3Provider()
+            provider_name = (getattr(self.config, "tts_provider", "") or "edge").strip().lower()
+            if provider_name == "pyttsx3":
+                from mission_ai.providers.pyttsx3 import PyTTSX3Provider
+                self._tts_provider = PyTTSX3Provider()
+            else:
+                from mission_ai.providers.edge_tts_provider import EdgeTTSProvider
+                voice_id = getattr(self.config, "tts_voice", "id-ID-GadisNeural")
+                self._tts_provider = EdgeTTSProvider(voice_id=voice_id)
         return self._tts_provider
+
+    def _log_stage(self, mission_id: str, output_root: Path, stage_name: str, status: str, message: str = ""):
+        try:
+            log_path = output_root / mission_id / "activity_log.json"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            data = {"mission_id": mission_id, "stages": []}
+            if log_path.exists():
+                try:
+                    data = json.loads(log_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    pass
+            now = datetime.now(timezone.utc).isoformat()
+            data["stages"].append({
+                "stage_name": stage_name,
+                "status": status,
+                "timestamp": now,
+                "message": message
+            })
+            log_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.debug(f"Activity logging failed: {e}")
 
     def run(self, mission_path: str, input_path: str, output_dir: str) -> RunSummary:
         # 1. Load and validate the mission.
         from mission_ai.mission.parser import MissionParser
         mission: MissionContext = MissionParser.parse_json_file(mission_path)
         self._progress(f"Mission: {mission.main_message}")
+
+        output_root = Path(output_dir)
+        self._log_stage(mission.mission_id, output_root, "Mission Initialization", "COMPLETED", f"Mission {mission.mission_id} parsed successfully")
 
         # --- Sink Mission ---
         try:
@@ -120,6 +155,7 @@ class MissionRunner:
         # 2. Discover input images and build deterministic jobs.
         image_paths = self._discover_images(input_path)
         jobs = ImageJobBuilder().build(mission, image_paths)
+        self._log_stage(mission.mission_id, output_root, "Image Discovery & Job Building", "COMPLETED", f"Discovered {len(image_paths)} images, built {len(jobs)} jobs")
         if not jobs:
             try:
                 self.state_sink.sink_event(
@@ -151,6 +187,7 @@ class MissionRunner:
             jobs = [selected_job]
             selected_source_path = Path(selected_job.source_path)
             self._progress(f"Selected image: {selected_source_path.name} ({selected_index + 1} of {len(analyses)})")
+            self._log_stage(mission.mission_id, output_root, "Candidate Selection", "COMPLETED", f"Selected image index {selected_index}")
 
         # 4. Process the selected job.
         for job in jobs:
@@ -282,9 +319,14 @@ class MissionRunner:
         output_manager: OutputManager,
         analysis: Optional[ImageAnalysis] = None,
     ) -> None:
+        output_root = output_manager.base_dir.parent
         # Reuse the analysis already performed during Drive candidate selection.
         # This avoids an unnecessary Gemini request for the selected image.
-        analysis = analysis or analyze_image(job.source_path, mission, self.provider)
+        if analysis is None:
+            analysis = analyze_image(job.source_path, mission, self.provider)
+            self._log_stage(mission.mission_id, output_root, f"Image Analysis ({job.job_id})", "COMPLETED", "Image analyzed successfully")
+        else:
+            self._log_stage(mission.mission_id, output_root, f"Image Analysis ({job.job_id})", "COMPLETED", "Image analysis reused from candidate selection")
 
         # Platform-specific captions (+ hashtags via the caption engine).
         platforms = mission.platforms or [DEFAULT_PLATFORM]
@@ -292,15 +334,19 @@ class MissionRunner:
             generate_platform_content(analysis, mission, self.provider, platform)
             for platform in platforms
         ]
+        self._log_stage(mission.mission_id, output_root, f"Caption & Hashtag Generation ({job.job_id})", "COMPLETED", f"Generated captions for {len(platforms)} platforms")
 
         # Indonesian voice-over script generation (Phase 17).
         voiceover_script = generate_voiceover_script(analysis, mission, self.provider, job.job_id)
+        self._log_stage(mission.mission_id, output_root, f"Voice-over Script Generation ({job.job_id})", "COMPLETED", "Voice-over script generated")
 
         # TTS Audio generation (Phase 18A/18B).
         audio_path = output_manager.voiceovers_dir / f"{job.job_id}.wav"
         try:
             generate_audio_for_script(voiceover_script, str(audio_path), self.tts_provider)
+            self._log_stage(mission.mission_id, output_root, f"TTS Audio Generation ({job.job_id})", "COMPLETED", "TTS audio generated successfully")
         except Exception as e:
+            self._log_stage(mission.mission_id, output_root, f"TTS Audio Generation ({job.job_id})", "FAILED", str(e))
             raise RuntimeError(f"TTS audio generation failed for {job.job_id}: {e}")
 
         # Video generation with configured ffmpeg/dimension settings using TTS audio (Phase 18B).
@@ -316,7 +362,9 @@ class MissionRunner:
             audio_path=str(audio_path) if audio_path.exists() else None,
         )
         if not ok:
+            self._log_stage(mission.mission_id, output_root, f"Video Generation ({job.job_id})", "FAILED", "Video generation failed")
             raise RuntimeError("Video generation failed (see FFmpeg output)")
+        self._log_stage(mission.mission_id, output_root, f"Video Generation ({job.job_id})", "COMPLETED", "Video generated successfully")
 
         package = ContentPackage(
             image_id=job.job_id,
@@ -328,6 +376,7 @@ class MissionRunner:
             voiceover_script=voiceover_script,
         )
         output_manager.save_package(package)
+        self._log_stage(mission.mission_id, output_root, f"Content Package Creation ({job.job_id})", "COMPLETED", "Content package created and saved")
         try:
             self.state_sink.sink_output(package)
         except Exception as e:

@@ -222,7 +222,7 @@ class GoogleDriveFolderResolver:
             return {}
 
         raise ValueError(
-            "Google Drive access is not configured. "
+            "Google Drive authentication required. "
             "Use user OAuth for private/shared mission folders, "
             "GOOGLE_DRIVE_API_KEY for public folders, or "
             "GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE for folders explicitly shared to the service account."
@@ -330,9 +330,12 @@ class GoogleDriveFolderResolver:
             return local_path
         except urllib.error.HTTPError as e:
             safe_name = Path(file_name).name
-            raise RuntimeError(f"Failed to download file {safe_name}: HTTP {e.code}") from e
+            safe_err = str(e).replace(str(file_id), MASKED)
+            raise RuntimeError(f"Failed to download file {safe_name}: {safe_err}") from e
         except Exception as e:
-            raise RuntimeError(f"Failed to download file {Path(file_name).name}: {type(e).__name__}") from e
+            safe_name = Path(file_name).name
+            safe_err = str(e).replace(str(file_id), MASKED)
+            raise RuntimeError(f"Failed to download file {safe_name}: {safe_err}") from e
 
     def resolve(self, url: str) -> List[Path]:
         """Resolve a mission-provided Google Drive folder URL to local images."""
