@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
@@ -16,11 +17,12 @@ class UploadJob:
 @dataclass
 class UploadResult:
     platform: str
-    status: str  # "stub_success", "failed", "not_configured"
+    status: str  # "success", "stub_success", "simulated", "failed", "not_configured", "timeout", "rate_limited"
     url: Optional[str] = None
     external_id: Optional[str] = None
     message: Optional[str] = None
     error: Optional[str] = None
+    timestamp: Optional[str] = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 @dataclass
 class BatchUploadResult:

@@ -5,11 +5,12 @@ from mission_ai.upload.models import UploadJob, UploadResult, BatchUploadResult
 from mission_ai.upload.registry import get_platform_adapter, list_supported_platforms
 
 class UploadWorker:
-    def __init__(self, credentials_map: Optional[Dict[str, Dict[str, Any]]] = None):
+    def __init__(self, credentials_map: Optional[Dict[str, Dict[str, Any]]] = None, output_dir: Optional[Path] = None):
         self.credentials_map = credentials_map or {}
+        self.output_dir = Path(output_dir) if output_dir else None
 
     def process_job(self, job: UploadJob) -> BatchUploadResult:
-        """Process an upload job by validating, resolving adapters, and executing stub uploads with failure isolation."""
+        """Process an upload job by validating, resolving adapters, and executing stub/simulated uploads with failure isolation."""
         if not job or not job.mission_id or not job.video_path or not job.selected_platforms:
             raise ValueError("Invalid or empty upload job: mission_id, video_path, and selected_platforms are required.")
 
@@ -70,7 +71,7 @@ class UploadWorker:
                 results.append(err_res)
                 failure_count += 1
 
-        return BatchUploadResult(
+        batch_result = BatchUploadResult(
             mission_id=job.mission_id,
             results=results,
             success_count=success_count,
@@ -78,6 +79,38 @@ class UploadWorker:
             failure_count=failure_count,
             not_configured_count=not_configured_count
         )
+
+        # Save upload report JSON if mission output directory exists (without overwriting checkpoint or metadata)
+        try:
+            out_base = self.output_dir or Path("./output")
+            mission_out_dir = out_base / job.mission_id
+            if mission_out_dir.exists():
+                report_path = mission_out_dir / "upload_report.json"
+                import json
+                report_data = {
+                    "mission_id": job.mission_id,
+                    "results": [
+                        {
+                            "platform": r.platform,
+                            "status": r.status,
+                            "url": r.url,
+                            "external_id": r.external_id,
+                            "message": r.message,
+                            "error": r.error,
+                            "timestamp": r.timestamp
+                        }
+                        for r in results
+                    ],
+                    "success_count": success_count,
+                    "simulated_count": simulated_count,
+                    "failure_count": failure_count,
+                    "not_configured_count": not_configured_count
+                }
+                report_path.write_text(json.dumps(report_data, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+        return batch_result
 
     def process_package(self, mission_id: str, package: ContentPackage, selected_platforms: List[str]) -> BatchUploadResult:
         """Helper to process a ContentPackage directly as an UploadJob."""

@@ -38,6 +38,10 @@ class AppConfig:
     google_drive_api_key: Optional[str] = os.getenv("GOOGLE_DRIVE_API_KEY")
     google_drive_service_account_file: Optional[str] = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE")
     google_drive_oauth_token_file: Optional[str] = os.getenv("GOOGLE_DRIVE_OAUTH_TOKEN_FILE")
+    enable_live_upload: bool = os.getenv("ENABLE_LIVE_UPLOAD", "false").lower() == "true"
+    youtube_client_secret_file: Optional[str] = os.getenv("YOUTUBE_CLIENT_SECRET_FILE")
+    youtube_token_file: Optional[str] = os.getenv("YOUTUBE_TOKEN_FILE")
+    youtube_channel_id: Optional[str] = os.getenv("YOUTUBE_CHANNEL_ID")
 
 
 def load_config() -> AppConfig:
