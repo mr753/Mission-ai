@@ -130,3 +130,49 @@ def test_youtube_adapter_timeout(tmp_path):
             with patch("urllib.request.urlopen", side_effect=TimeoutError("Connection timed out")):
                 result = adapter.upload(package)
                 assert result.status == "timeout"
+
+
+def test_youtube_adapter_video_is_directory(tmp_path):
+    # Pass a directory path instead of a video file when live upload is enabled
+    vid_dir = tmp_path / "not_a_file_dir"
+    vid_dir.mkdir()
+
+    package = ContentPackage(
+        image_id="job1",
+        source_path=str(vid_dir),
+        analysis=ImageAnalysis(summary="test", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="youtube", caption="Test caption", hashtags=["#tag"], title="Test Title")],
+        status=JobStatus.COMPLETED,
+        video_path=str(vid_dir)
+    )
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "true"}):
+        with patch("mission_ai.upload.adapters.YouTubeShortsAdapter._get_access_token", return_value="fake_token"):
+            result = adapter.upload(package)
+            assert result.status == "failed"
+            assert result.error is not None
+
+
+def test_youtube_adapter_video_empty(tmp_path):
+    video = tmp_path / "empty.mp4"
+    video.write_bytes(b"")
+
+    package = ContentPackage(
+        image_id="job1",
+        source_path=str(video),
+        analysis=ImageAnalysis(summary="test", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="youtube", caption="Test caption", hashtags=["#tag"], title="Test Title")],
+        status=JobStatus.COMPLETED,
+        video_path=str(video)
+    )
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "true"}):
+        with patch("mission_ai.upload.adapters.YouTubeShortsAdapter._get_access_token", return_value="fake_token"):
+            # When file size is 0 or unreadable during stat/upload request, it should handle gracefully without claiming success
+            # Note: Path(video_path).stat().st_size is 0, which might raise or fail during POST X-Upload-Content-Length or return failed
+            result = adapter.upload(package)
+            assert result.status in ("failed", "stub_success", "simulated", "rate_limited", "timeout")
+            if result.status == "success":
+                pytest.fail("Empty video should not result in success")

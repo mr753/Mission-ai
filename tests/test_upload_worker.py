@@ -1,6 +1,8 @@
+import json
 import pytest
 from pathlib import Path
 from PIL import Image
+from unittest.mock import patch
 
 from mission_ai.upload import (
     UploadJob,
@@ -209,4 +211,66 @@ def test_manual_output_artifacts_remain_untouched(tmp_path):
     # Verify manual artifacts are still intact and unmodified
     assert (output_mgr.metadata_dir / "img_1.json").exists()
     assert (output_mgr.captions_dir / "img_1_caption.txt").exists()
+    assert video_path.exists()
+
+
+def test_e2e_simulation_pipeline_and_report(tmp_path):
+    mission_id = "MISSION-E2E-SIM"
+    output_mgr = OutputManager(tmp_path, mission_id)
+    # 1. Simulate runner / video generator output artifacts
+    img_path = tmp_path / "source.png"
+    Image.new("RGB", (64, 64), color="blue").save(img_path)
+
+    video_path = output_mgr.videos_dir / "final_video.mp4"
+    video_path.write_bytes(b"simulated mp4 video stream bytes")
+
+    package = ContentPackage(
+        image_id="img_e2e",
+        source_path=str(img_path),
+        analysis=ImageAnalysis(summary="E2E test", visible_subjects=["subject"], visual_context="context", relevant_details=[]),
+        captions=[
+            PlatformContent(platform="youtube", caption="YouTube caption", hashtags=["#shorts"], title="YT Title"),
+            PlatformContent(platform="instagram", caption="IG caption", hashtags=["#reels"])
+        ],
+        status=JobStatus.COMPLETED,
+        video_path=str(video_path)
+    )
+
+    output_mgr.save_package(package)
+
+    # Verify metadata and captions saved
+    meta_file = output_mgr.metadata_dir / "img_e2e.json"
+    assert meta_file.exists()
+    meta_mtime_before = meta_file.stat().st_mtime
+
+    # 2. Run UploadWorker with output_dir set to tmp_path (simulation mode: ENABLE_LIVE_UPLOAD=false)
+    worker = UploadWorker(output_dir=tmp_path)
+    selected = ["youtube", "instagram", "facebook", "x", "threads"]
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "false"}):
+        batch = worker.process_package(mission_id, package, selected)
+
+    # 3. Verify batch result and simulation counts
+    assert batch.mission_id == mission_id
+    assert batch.simulated_count == len(selected)
+    assert batch.success_count == 0
+    assert batch.failure_count == 0
+    assert len(batch.results) == len(selected)
+
+    for r in batch.results:
+        assert r.status in ("stub_success", "simulated")
+        assert r.timestamp is not None
+        assert r.platform in selected
+
+    # 4. Verify upload_report.json was created correctly in mission output dir
+    report_path = output_mgr.base_dir / "upload_report.json"
+    assert report_path.exists()
+
+    report_data = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report_data["mission_id"] == mission_id
+    assert report_data["simulated_count"] == len(selected)
+    assert len(report_data["results"]) == len(selected)
+
+    # 5. Verify mission metadata and artifacts were NOT overwritten or modified
+    assert meta_file.exists()
+    assert meta_file.stat().st_mtime == meta_mtime_before
     assert video_path.exists()
