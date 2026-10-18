@@ -34,6 +34,10 @@ class AppConfig:
     enable_supabase_sink: bool = os.getenv("ENABLE_SUPABASE_SINK", "false").lower() == "true"
     tts_provider: str = os.getenv("TTS_PROVIDER", "edge")
     tts_voice: str = os.getenv("TTS_VOICE", "id-ID-GadisNeural")
+    google_drive_access_token: Optional[str] = os.getenv("GOOGLE_DRIVE_ACCESS_TOKEN")
+    google_drive_api_key: Optional[str] = os.getenv("GOOGLE_DRIVE_API_KEY")
+    google_drive_service_account_file: Optional[str] = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE")
+    google_drive_oauth_token_file: Optional[str] = os.getenv("GOOGLE_DRIVE_OAUTH_TOKEN_FILE")
 
 
 def load_config() -> AppConfig:

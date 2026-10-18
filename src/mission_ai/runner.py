@@ -386,7 +386,13 @@ class MissionRunner:
         # Google Drive folder URL: resolve (list + download) via the Drive API.
         if is_google_drive_url(input_path):
             from mission_ai.sources.google_drive import GoogleDriveFolderResolver
-            resolver = GoogleDriveFolderResolver(download_dir=self.config.output_directory / "_drive_downloads")
+            resolver = GoogleDriveFolderResolver(
+                download_dir=self.config.output_directory / "_drive_downloads",
+                access_token=getattr(self.config, "google_drive_access_token", None),
+                api_key=getattr(self.config, "google_drive_api_key", None),
+                credentials_path=getattr(self.config, "google_drive_service_account_file", None),
+                oauth_token_path=getattr(self.config, "google_drive_oauth_token_file", None),
+            )
             resolved = resolver.resolve(input_path)
             if not resolved:
                 raise PipelineError(f"Google Drive source produced no usable images: {input_path}")

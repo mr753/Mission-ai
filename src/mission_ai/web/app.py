@@ -1,6 +1,7 @@
 import json
 import logging
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -19,43 +20,294 @@ HTML = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mission AI Dashboard</title>
+<title>Mission AI | Dark Premium Dashboard</title>
 <style>
-:root{--bg:#121212;--card:#1e1e1e;--border:#333;--text:#e0e0e0;--text-bright:#fff;--accent:#0066cc;--accent-hover:#0052a3;--success-bg:#1b5e20;--success-text:#c8e6c9;--fail-bg:#b71c1c;--fail-text:#ffcdd2;--pending-bg:#f57f17;--pending-text:#fffde7}
-body{font-family:system-ui,-apple-system,sans-serif;max-width:1100px;margin:0 auto;padding:12px;background:var(--bg);color:var(--text);line-height:1.5}
-header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:16px;gap:10px}
-h1,h2,h3{color:var(--text-bright);margin-top:0}
-nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
-nav button{background:#222;color:var(--text);border:1px solid var(--border);padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600;width:auto;margin:0}
-nav button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-.tab-content{display:none}
-.tab-content.active{display:block}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin:16px 0;box-shadow:0 4px 6px rgba(0,0,0,0.3)}
-input,textarea,button{padding:10px;margin:6px 0;width:100%;box-sizing:border-box;background:#2a2a2a;color:var(--text-bright);border:1px solid #444;border-radius:6px;font-family:inherit}
-button{background:var(--accent);cursor:pointer;font-weight:600;border:none}
-button:hover{background:var(--accent-hover)}
-button:disabled{background:#555;cursor:not-allowed}
-pre{white-space:pre-wrap;background:#151515;padding:12px;border-radius:6px;border:1px solid #282828;overflow-x:auto}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
-.post-card{background:#222;border:1px solid #444;border-radius:10px;padding:14px;margin:10px 0}
-.badge{display:inline-block;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:700}
-.COMPLETED{background:var(--success-bg);color:var(--success-text)}
-.FAILED{background:var(--fail-bg);color:var(--fail-text)}
-.PENDING,.PROCESSING{background:var(--pending-bg);color:var(--pending-text)}
-.badge-muted{background:#424242;color:var(--text)}
-.section-title{font-size:14px;font-weight:bold;color:#aaa;margin-top:10px;margin-bottom:4px}
-video{width:100%;max-height:320px;background:#000;border-radius:6px;margin-top:8px}
-.status-box{background:#151515;border:1px solid var(--border);padding:12px;border-radius:6px;margin-top:10px}
-@media(min-width:768px){body{padding:24px}.card{padding:24px}}
+:root {
+  --bg: #0a0e17;
+  --card-bg: #131b2e;
+  --card-border: rgba(255, 255, 255, 0.08);
+  --text: #94a3b8;
+  --text-bright: #f8fafc;
+  --text-muted: #64748b;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-glow: rgba(59, 130, 246, 0.25);
+  --success-bg: rgba(6, 95, 70, 0.4);
+  --success-border: rgba(16, 185, 129, 0.3);
+  --success-text: #34d399;
+  --fail-bg: rgba(127, 29, 29, 0.4);
+  --fail-border: rgba(239, 68, 68, 0.3);
+  --fail-text: #f87171;
+  --pending-bg: rgba(120, 53, 15, 0.4);
+  --pending-border: rgba(245, 158, 11, 0.3);
+  --pending-text: #fbbf24;
+  --input-bg: #0f172a;
+  --input-border: #334155;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+h1, h2, h3 { color: var(--text-bright); margin-top: 0; font-weight: 700; }
+h1 { font-size: 24px; letter-spacing: -0.5px; }
+h2 { font-size: 18px; margin-bottom: 12px; }
+h3 { font-size: 15px; margin-bottom: 8px; }
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 24px;
+  background: var(--card-bg);
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+}
+nav button {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  padding: 10px 18px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  width: auto;
+  margin: 0;
+  transition: all 0.2s ease;
+}
+nav button:hover {
+  color: var(--text-bright);
+  background: rgba(255, 255, 255, 0.04);
+}
+nav button.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 4px 14px var(--accent-glow);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; animation: fadeIn 0.25s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px;
+  margin: 20px 0;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+}
+
+label { font-weight: 600; font-size: 13px; color: var(--text-bright); display: block; margin-bottom: 6px; }
+input, textarea, select {
+  padding: 12px 14px;
+  margin: 6px 0 16px 0;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--input-bg);
+  color: var(--text-bright);
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 20px;
+  width: 100%;
+  font-size: 14px;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+button:hover { background: var(--accent-hover); box-shadow: 0 6px 18px var(--accent-glow); }
+button:active { transform: translateY(1px); }
+button:disabled { background: #334155; color: var(--text-muted); cursor: not-allowed; box-shadow: none; }
+
+pre {
+  white-space: pre-wrap;
+  background: #090d16;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  overflow-x: auto;
+  font-family: 'Fira Code', Consolas, Monaco, monospace;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+.post-card {
+  background: #182238;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 8px 0;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.post-card:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.COMPLETED { background: var(--success-bg); color: var(--success-text); border: 1px solid var(--success-border); }
+.FAILED { background: var(--fail-bg); color: var(--fail-text); border: 1px solid var(--fail-border); }
+.PENDING, .PROCESSING { background: var(--pending-bg); color: var(--pending-text); border: 1px solid var(--pending-border); }
+.badge-muted { background: #1e293b; color: var(--text); border: 1px solid #334155; }
+
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 16px;
+  margin-bottom: 6px;
+}
+video {
+  width: 100%;
+  max-height: 360px;
+  background: #000;
+  border-radius: 10px;
+  margin-top: 10px;
+  border: 1px solid var(--card-border);
+}
+.status-box {
+  background: #0f172a;
+  border: 1px solid var(--card-border);
+  padding: 16px;
+  border-radius: 12px;
+  margin-top: 16px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+th, td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 14px;
+}
+th {
+  color: var(--text-bright);
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.02);
+}
+@media(min-width: 768px) {
+  body { padding: 32px; }
+}
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  padding: 12px;
+}
+.card, .post-card, .status-box, pre, video, table, th, td, #mission-progress-banner {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+}
+video {
+  width: 100%;
+  height: auto;
+  max-height: 360px;
+  object-fit: contain;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (max-width: 480px) {
+  body { padding: 8px; }
+  .card { padding: 14px; margin: 12px 0; }
+  header { padding: 14px; }
+  nav button { padding: 8px 12px; font-size: 13px; }
+  .grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
 <header>
 <div>
 <h1 style="margin:0">Mission AI</h1>
-<small style="color:#aaa">Autonomous Video & Content Production Engine</small>
+<small style="color:var(--text-muted)">Autonomous Video & Content Production Engine</small>
 </div>
-<div id="system-status" style="font-size:13px;color:#81c784">System: Connected</div>
+<div id="system-status" style="font-size:13px;color:#34d399;font-weight:600;display:flex;align-items:center;gap:6px">
+<span style="width:8px;height:8px;background:#34d399;border-radius:50%;display:inline-block;box-shadow:0 0 8px #34d399"></span>
+System: Connected
+</div>
 </header>
 
 <nav>
@@ -70,9 +322,9 @@ video{width:100%;max-height:320px;background:#000;border-radius:6px;margin-top:8
 <div id="tab-dashboard" class="tab-content active">
 <div class="card" id="run">
 <h2>Run New Mission</h2>
-<p style="color:#aaa;font-size:13px">Paste your mission instructions below. Include a Google Drive folder link to source input images.</p>
+<p style="color:var(--text);font-size:13px;margin-bottom:16px">Paste your mission instructions below. Include a Google Drive folder link to source input images.</p>
 <form id="form">
-<label style="font-weight:600;font-size:14px">Mission Text
+<label>Mission Text
 <textarea name="mission_text" rows="6" placeholder="Example:
 Create daily motivation reels from this folder.
 Drive Link: https://drive.google.com/drive/folders/abc123xyz" required></textarea>
@@ -92,14 +344,14 @@ Drive Link: https://drive.google.com/drive/folders/abc123xyz" required></textare
 <div id="tab-missions" class="tab-content">
 <div class="card">
 <h2>Mission History</h2>
-<p style="color:#aaa;font-size:13px">Select a mission below to view its full processing status, videos, scripts, and captions, or delete completed missions.</p>
+<p style="color:var(--text);font-size:13px;margin-bottom:16px">Select a mission below to view its full processing status, videos, scripts, and captions, or delete completed missions.</p>
 <div id="missions-list">Loading missions...</div>
 </div>
 
 <div class="card" id="mission-detail-card" style="display:none">
 <div id="detail-title-bar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
 <h2 id="detail-title" style="margin:0">Mission Output</h2>
-<button id="delete-mission-btn" onclick="" style="background:#b71c1c;width:auto;padding:6px 12px;font-size:12px">Delete Mission</button>
+<button id="delete-mission-btn" onclick="" style="background:rgba(239, 68, 68, 0.2);color:#f87171;border:1px solid rgba(239, 68, 68, 0.3);width:auto;padding:6px 14px;font-size:12px;box-shadow:none">Delete Mission</button>
 </div>
 <div id="posts-container"><p>Loading mission output...</p></div>
 <div id="activity-log-container" style="margin-top:16px"></div>
@@ -110,7 +362,7 @@ Drive Link: https://drive.google.com/drive/folders/abc123xyz" required></textare
 <div id="tab-accounts" class="tab-content">
 <div class="card">
 <h2>Social Media Account Management</h2>
-<p style="color:#aaa;font-size:13px;margin-bottom:12px">Manage platform connections and check automation readiness. Note: Real automated publishing requires OAuth configuration (currently operating in manual download / simulation mode).</p>
+<p style="color:var(--text);font-size:13px;margin-bottom:16px">Manage platform connections and check automation readiness. Note: Real automated publishing requires OAuth configuration (currently operating in manual download / simulation mode).</p>
 <div id="accounts-list">Loading accounts...</div>
 </div>
 </div>
@@ -119,7 +371,7 @@ Drive Link: https://drive.google.com/drive/folders/abc123xyz" required></textare
 <div id="tab-content" class="tab-content">
 <div class="card">
 <h2>Content Library</h2>
-<p style="color:#aaa;font-size:13px">Generated videos, voice-over scripts, captions, and hashtags ready for manual download or posting.</p>
+<p style="color:var(--text);font-size:13px;margin-bottom:16px">Generated videos, voice-over scripts, captions, and hashtags ready for manual download or posting.</p>
 <div id="content-library-container">Loading content library...</div>
 </div>
 </div>
@@ -128,7 +380,7 @@ Drive Link: https://drive.google.com/drive/folders/abc123xyz" required></textare
 <div id="tab-activity" class="tab-content">
 <div class="card">
 <h2>Activity Report & Status Log</h2>
-<p style="color:#aaa;font-size:13px">Summary of processed missions, job success rates, and operational status.</p>
+<p style="color:var(--text);font-size:13px;margin-bottom:16px">Summary of processed missions, job success rates, and operational status.</p>
 <div id="activity-report-container">Loading activity report...</div>
 </div>
 </div>
@@ -148,11 +400,11 @@ async function loadSystemHealth(){
   const res=await fetch('/api/health');
   const data=await res.json();
   if(data.status==='ok'){
-   document.getElementById('system-status').textContent='System: Online ('+data.service+')';
+   document.getElementById('system-status').innerHTML='<span style="width:8px;height:8px;background:#34d399;border-radius:50%;display:inline-block;box-shadow:0 0 8px #34d399"></span> System: Online ('+data.service+')';
   }
  }catch(e){
-  document.getElementById('system-status').textContent='System: Offline / Error';
-  document.getElementById('system-status').style.color='#ff8a80';
+  document.getElementById('system-status').innerHTML='<span style="width:8px;height:8px;background:#f87171;border-radius:50%;display:inline-block;box-shadow:0 0 8px #f87171"></span> System: Offline / Error';
+  document.getElementById('system-status').style.color='#f87171';
  }
 }
 
@@ -160,62 +412,73 @@ async function loadMissions(){
  try{
   const res=await fetch('/api/missions');
   const missions=await res.json();
+  if(!Array.isArray(missions)) {
+   throw new Error("Invalid missions response format");
+  }
 
   // Render dashboard summary
   const sumContainer=document.getElementById('dashboard-missions-summary');
-  if(!missions.length){
-   sumContainer.innerHTML='<p>No missions found. Start a new mission from the Dashboard tab.</p>';
-  }else{
-   let sumHtml='<div class="grid">';
-   for(const m of missions){
-    const counts=m.jobs||{};
-    const comp=counts['COMPLETED']||0;
-    const fail=counts['FAILED']||0;
-    const total=Object.values(counts).reduce((a,b)=>a+b,0);
-    const isDone = total > 0 && comp === total;
-    const statusBadge = isDone ? '<span class="badge COMPLETED">Completed</span>' : (fail > 0 ? '<span class="badge FAILED">Failures Present</span>' : '<span class="badge PROCESSING">Processing / Pending</span>');
-    sumHtml+=`<div class="post-card">
-     <div style="cursor:pointer" onclick="switchTab('missions'); loadMissionDetail('${escapeJs(m.mission_id)}');">
-      <h3>${escapeHtml(m.mission_id)}</h3>
-      <p>Jobs: ${total} | ${statusBadge}</p>
-      <p style="font-size:13px;color:#aaa">Completed: ${comp} | Failed: ${fail}</p>
-     </div>
-     <button onclick="deleteMission('${escapeJs(m.mission_id)}')" style="background:#b71c1c;margin-top:8px;padding:4px 8px;font-size:12px;width:auto">Delete Mission</button>
-    </div>`;
+  if(sumContainer){
+   if(!missions.length){
+    sumContainer.innerHTML='<p style="color:var(--text-muted)">No missions found. Start a new mission from the Dashboard tab.</p>';
+   }else{
+    let sumHtml='<div class="grid">';
+    for(const m of missions){
+     const counts=m.jobs||{};
+     const comp=counts['COMPLETED']||0;
+     const fail=counts['FAILED']||0;
+     const total=Object.values(counts).reduce((a,b)=>a+b,0);
+     const isDone = total > 0 && comp === total;
+     const statusBadge = isDone ? '<span class="badge COMPLETED">Completed</span>' : (fail > 0 ? '<span class="badge FAILED">Failures Present</span>' : '<span class="badge PROCESSING">Processing / Pending</span>');
+     sumHtml+=`<div class="post-card">
+      <div style="cursor:pointer" onclick="switchTab('missions'); loadMissionDetail('${escapeJs(m.mission_id)}');">
+       <h3>${escapeHtml(m.mission_id)}</h3>
+       <p style="margin:4px 0">Jobs: ${total} | ${statusBadge}</p>
+       <p style="font-size:13px;color:var(--text-muted);margin:4px 0">Completed: ${comp} | Failed: ${fail}</p>
+      </div>
+      <button onclick="deleteMission('${escapeJs(m.mission_id)}')" style="background:rgba(239, 68, 68, 0.2);color:#f87171;border:1px solid rgba(239, 68, 68, 0.3);margin-top:10px;padding:6px 10px;font-size:12px;width:auto;box-shadow:none">Delete Mission</button>
+     </div>`;
+    }
+    sumHtml+='</div>';
+    sumContainer.innerHTML=sumHtml;
    }
-   sumHtml+='</div>';
-   sumContainer.innerHTML=sumHtml;
   }
 
   // Render missions list
   const container=document.getElementById('missions-list');
-  if(!missions.length){
-   container.innerHTML='<p>No missions found.</p>';
-   return;
+  if(container){
+   if(!missions.length){
+    container.innerHTML='<p style="color:var(--text-muted)">No missions found.</p>';
+   } else {
+    let html='<div class="grid">';
+    for(const m of missions){
+     const counts=m.jobs||{};
+     const comp=counts['COMPLETED']||0;
+     const fail=counts['FAILED']||0;
+     const total=Object.values(counts).reduce((a,b)=>a+b,0);
+     html+=`<div class="post-card">
+      <div style="cursor:pointer" onclick="loadMissionDetail('${escapeJs(m.mission_id)}')">
+       <h3>${escapeHtml(m.mission_id)}</h3>
+       <p style="margin:4px 0">Total Jobs: ${total}</p>
+       <p style="margin:4px 0"><span class="badge COMPLETED">Completed: ${comp}</span> <span class="badge FAILED">Failed: ${fail}</span></p>
+      </div>
+      <button onclick="deleteMission('${escapeJs(m.mission_id)}')" style="background:rgba(239, 68, 68, 0.2);color:#f87171;border:1px solid rgba(239, 68, 68, 0.3);margin-top:10px;padding:6px 10px;font-size:12px;width:auto;box-shadow:none">Delete Mission</button>
+     </div>`;
+    }
+    html+='</div>';
+    container.innerHTML=html;
+   }
   }
-  let html='<div class="grid">';
-  for(const m of missions){
-   const counts=m.jobs||{};
-   const comp=counts['COMPLETED']||0;
-   const fail=counts['FAILED']||0;
-   const total=Object.values(counts).reduce((a,b)=>a+b,0);
-   html+=`<div class="post-card">
-    <div style="cursor:pointer" onclick="loadMissionDetail('${escapeJs(m.mission_id)}')">
-     <h3>${escapeHtml(m.mission_id)}</h3>
-     <p>Total Jobs: ${total}</p>
-     <p><span class="badge COMPLETED">Completed: ${comp}</span> <span class="badge FAILED">Failed: ${fail}</span></p>
-    </div>
-    <button onclick="deleteMission('${escapeJs(m.mission_id)}')" style="background:#b71c1c;margin-top:8px;padding:4px 8px;font-size:12px;width:auto">Delete Mission</button>
-   </div>`;
-  }
-  html+='</div>';
-  container.innerHTML=html;
 
-  if(missions.length === 1 && !document.getElementById('mission-detail-card').dataset.loaded){
+  const detailCard = document.getElementById('mission-detail-card');
+  if(missions.length === 1 && detailCard && !detailCard.dataset.loaded){
    loadMissionDetail(missions[0].mission_id);
   }
  }catch(e){
-  document.getElementById('missions-list').textContent='Error loading missions: '+e.message;
+  const sumContainer = document.getElementById('dashboard-missions-summary');
+  if(sumContainer) sumContainer.textContent = 'Error loading summary: ' + e.message;
+  const listContainer = document.getElementById('missions-list');
+  if(listContainer) listContainer.textContent = 'Error loading missions: ' + e.message;
  }
 }
 
@@ -242,21 +505,21 @@ async function loadAccounts(){
   const data=await res.json();
   const accounts=data.accounts||[];
   const container=document.getElementById('accounts-list');
-  if(!accounts.length){container.innerHTML='<p>No accounts found.</p>';return;}
+  if(!accounts.length){container.innerHTML='<p style="color:var(--text-muted)">No accounts found.</p>';return;}
   let html='<div class="grid">';
   for(const a of accounts){
    const isConnected=a.status==='connected';
    const statusClass=isConnected?'COMPLETED':'PENDING';
    html+=`<div class="post-card">
     <div style="display:flex;justify-content:space-between;align-items:center">
-     <h3 style="text-transform:capitalize">${escapeHtml(a.platform)}</h3>
+     <h3 style="text-transform:capitalize;margin:0">${escapeHtml(a.platform)}</h3>
      <span class="badge ${statusClass}">${escapeHtml(a.status)}</span>
     </div>
-    <p>Account ID: ${escapeHtml(a.account_id || 'Not configured / Unlinked')}</p>
-    <p>Display Name: ${escapeHtml(a.display_name || 'N/A')}</p>
-    <p>Integration: ${a.has_credential_ref ? 'Credential Ref Configured' : 'OAuth / Credentials Not Configured'}</p>
-    <p style="font-size:12px;color:#bbb">Readiness: ${isConnected ? 'Ready for automated dispatch (stub/simulated)' : 'Not connected — Use manual download workflow'}</p>
-    <button onclick="alert('OAuth authentication for ${escapeJs(a.platform)} is not yet configured or connected in this environment.')" style="margin-top:8px;background:#333;border:1px solid #555">Manage / Connect</button>
+    <p style="margin:8px 0 4px 0">Account ID: ${escapeHtml(a.account_id || 'Not configured / Unlinked')}</p>
+    <p style="margin:4px 0">Display Name: ${escapeHtml(a.display_name || 'N/A')}</p>
+    <p style="margin:4px 0">Integration: ${a.has_credential_ref ? 'Credential Ref Configured' : 'OAuth / Credentials Not Configured'}</p>
+    <p style="font-size:12px;color:var(--text-muted);margin:4px 0">Readiness: ${isConnected ? 'Ready for automated dispatch (stub/simulated)' : 'Not connected — Use manual download workflow'}</p>
+    <button onclick="alert('OAuth authentication for ${escapeJs(a.platform)} is not yet configured or connected in this environment.')" style="margin-top:12px;background:#1e293b;color:var(--text-bright);border:1px solid #334155;box-shadow:none">Manage / Connect</button>
    </div>`;
   }
   html+='</div>';
@@ -273,7 +536,7 @@ async function loadContentLibrary(){
   const res=await fetch('/api/missions');
   const missions=await res.json();
   if(!missions.length){
-   container.innerHTML='<p>No content available yet.</p>';
+   container.innerHTML='<p style="color:var(--text-muted)">No content available yet.</p>';
    return;
   }
   let html='';
@@ -281,20 +544,20 @@ async function loadContentLibrary(){
    const postsRes=await fetch(`/api/missions/${m.mission_id}/posts`);
    const postsData=await postsRes.json();
    if(postsData.posts && postsData.posts.length){
-    html+=`<h3>Mission: ${escapeHtml(m.mission_id)}</h3>`;
+    html+=`<h3 style="margin-top:16px">Mission: ${escapeHtml(m.mission_id)}</h3>`;
     for(const p of postsData.posts){
      if(p.video_path){
       const relVideo=p.video_path.replace(/\\\\/g,'/').split('/videos/').pop();
       html+=`<div class="post-card">
-       <strong>Job / Image ID: ${escapeHtml(p.image_id)}</strong>
+       <strong style="color:var(--text-bright)">Job / Image ID: ${escapeHtml(p.image_id)}</strong>
        <video controls src="/api/missions/${m.mission_id}/files/videos/${relVideo}"></video>
-       <p style="margin-top:8px"><a href="/api/missions/${m.mission_id}/files/videos/${relVideo}" download style="color:#66b2ff;font-weight:600">Download MP4 Asset</a></p>
+       <p style="margin-top:12px"><a href="/api/missions/${m.mission_id}/files/videos/${relVideo}" download style="color:#60a5fa;font-weight:600;text-decoration:none">Download MP4 Asset</a></p>
       </div>`;
      }
     }
    }
   }
-  container.innerHTML=html || '<p>No video assets generated yet.</p>';
+  container.innerHTML=html || '<p style="color:var(--text-muted)">No video assets generated yet.</p>';
  }catch(e){
   container.innerHTML='Error loading content library: '+e.message;
  }
@@ -307,23 +570,23 @@ async function loadActivityReport(){
   const res=await fetch('/api/missions');
   const missions=await res.json();
   if(!missions.length){
-   container.innerHTML='<p>No activity recorded yet.</p>';
+   container.innerHTML='<p style="color:var(--text-muted)">No activity recorded yet.</p>';
    return;
   }
-  let html='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin-top:8px">';
-  html+='<tr style="border-bottom:1px solid #444;text-align:left"><th style="padding:8px">Mission ID</th><th style="padding:8px">Total Jobs</th><th style="padding:8px">Completed</th><th style="padding:8px">Failed</th><th style="padding:8px">Status</th></tr>';
+  let html='<div style="overflow-x:auto"><table>';
+  html+='<tr><th>Mission ID</th><th>Total Jobs</th><th>Completed</th><th>Failed</th><th>Status</th></tr>';
   for(const m of missions){
    const counts=m.jobs||{};
    const comp=counts['COMPLETED']||0;
    const fail=counts['FAILED']||0;
    const total=Object.values(counts).reduce((a,b)=>a+b,0);
    const status = total > 0 && comp === total ? 'Completed' : (fail > 0 ? 'Failures Present' : 'In Progress / Pending');
-   html+=`<tr style="border-bottom:1px solid #282828">
-    <td style="padding:8px;font-weight:600">${escapeHtml(m.mission_id)}</td>
-    <td style="padding:8px">${total}</td>
-    <td style="padding:8px;color:#c8e6c9">${comp}</td>
-    <td style="padding:8px;color:#ffcdd2">${fail}</td>
-    <td style="padding:8px">${status}</td>
+   html+=`<tr>
+    <td style="font-weight:600;color:var(--text-bright)">${escapeHtml(m.mission_id)}</td>
+    <td>${total}</td>
+    <td style="color:#34d399">${comp}</td>
+    <td style="color:#f87171">${fail}</td>
+    <td>${status}</td>
    </tr>`;
   }
   html+='</table></div>';
@@ -333,74 +596,121 @@ async function loadActivityReport(){
  }
 }
 
+let activeMissionPollTimer = null;
+
 async function loadMissionDetail(missionId){
+ if(activeMissionPollTimer) { clearInterval(activeMissionPollTimer); activeMissionPollTimer = null; }
  const detailCard=document.getElementById('mission-detail-card');
  detailCard.style.display='block';
  detailCard.dataset.loaded='true';
  document.getElementById('detail-title').textContent='Mission Output: '+missionId;
  document.getElementById('delete-mission-btn').setAttribute('onclick', `deleteMission('${escapeJs(missionId)}')`);
 
+ if(!document.getElementById('mission-progress-banner')) {
+  const detailTitleBar = document.getElementById('detail-title-bar');
+  if(detailTitleBar) {
+   const bannerHtml = `<div id="mission-progress-banner" class="card" style="background:#0f172a;border:1px solid var(--accent);margin:12px 0;padding:16px;box-sizing:border-box;width:100%;max-width:100%">
+     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+       <div style="display:flex;align-items:center;gap:8px">
+         <div id="progress-spinner-container"><span class="spinner"></span></div>
+         <strong id="progress-status-title" style="color:var(--text-bright)">Processing Mission...</strong>
+       </div>
+       <div id="progress-badge-container"><span class="badge PROCESSING">In Progress</span></div>
+     </div>
+     <p id="progress-active-stage" style="margin:8px 0 4px 0;font-size:13px;color:var(--text)">Current Stage: Initializing...</p>
+     <div style="background:#1e293b;border-radius:6px;height:6px;width:100%;margin:10px 0;overflow:hidden">
+       <div id="progress-bar-fill" style="background:var(--accent);height:100%;width:15%;transition:width 0.3s ease"></div>
+     </div>
+     <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-muted);flex-wrap:wrap;gap:4px">
+       <span id="progress-time-started">Started: --:--</span>
+       <span id="progress-duration">Duration: 0s</span>
+     </div>
+   </div>`;
+   detailTitleBar.insertAdjacentHTML('afterend', bannerHtml);
+  }
+ }
+
+ await refreshMissionDetailData(missionId);
+
+ activeMissionPollTimer = setInterval(async () => {
+  const currentCard = document.getElementById('mission-detail-card');
+  if(!currentCard || currentCard.style.display === 'none') {
+   clearInterval(activeMissionPollTimer);
+   activeMissionPollTimer = null;
+   return;
+  }
+  const isTerminal = await refreshMissionDetailData(missionId);
+  if(isTerminal) {
+   clearInterval(activeMissionPollTimer);
+   activeMissionPollTimer = null;
+  }
+ }, 3500);
+}
+
+async function refreshMissionDetailData(missionId) {
  const container=document.getElementById('posts-container');
- container.innerHTML='Loading posts...';
  const logContainer=document.getElementById('activity-log-container');
- logContainer.innerHTML = '<div class="card"><h3>Activity Log & Execution Stages</h3><div id="activity-stages-container">Loading activity log...</div></div>';
+ if(!logContainer.innerHTML.includes('activity-stages-container')) {
+  logContainer.innerHTML = '<div class="card" style="margin:0;background:#0f172a"><h3>Activity Log & Execution Stages</h3><div id="activity-stages-container">Loading activity log...</div></div>';
+ }
 
- loadMissionActivity(missionId);
-
+ const hasTerminal = await loadMissionActivity(missionId);
  try{
   const res=await fetch(`/api/missions/${missionId}/posts`);
   const data=await res.json();
   if(!data.posts || !data.posts.length){
-   container.innerHTML='<p>No output is available for this mission yet.</p>';
-   return;
+   container.innerHTML='<p style="color:var(--text-muted)">No output is available for this mission yet. Processing in progress...</p>';
+   return hasTerminal;
   }
   let html='';
   for(const p of data.posts){
    const statusClass=p.status||'PENDING';
    html+=`<div class="post-card">
     <div style="display:flex;justify-content:space-between;align-items:center">
-     <strong>Image / Job ID: ${escapeHtml(p.image_id)}</strong>
+     <strong style="color:var(--text-bright)">Image / Job ID: ${escapeHtml(p.image_id)}</strong>
      <span class="badge ${statusClass}">${escapeHtml(p.status)}</span>
     </div>`;
    if(p.error){
-    html+=`<p style="color:#ff8a80">Error: ${escapeHtml(p.error)}</p>`;
+    html+=`<p style="color:#f87171;margin:8px 0;background:rgba(239, 68, 68, 0.1);padding:8px;border-radius:6px;border:1px solid rgba(239, 68, 68, 0.2)"><strong>Error:</strong> ${escapeHtml(p.error)}</p>`;
    }
    if(p.video_path){
     const relVideo=p.video_path.replace(/\\\\/g,'/').split('/videos/').pop();
-    html+=`<div class="section-title">Video:</div>
+    html+=`<div class="section-title">Video Asset:</div>
     <video controls src="/api/missions/${missionId}/files/videos/${relVideo}"></video>
-    <p><a href="/api/missions/${missionId}/files/videos/${relVideo}" download style="color:#66b2ff">Download MP4</a></p>`;
+    <p style="margin-top:8px"><a href="/api/missions/${missionId}/files/videos/${relVideo}" download style="color:#60a5fa;font-weight:600;text-decoration:none">Download MP4 Asset</a></p>`;
    } else {
-    html+=`<div class="section-title">Video:</div><p style="color:#757575">Not generated / unavailable</p>`;
+    html+=`<div class="section-title">Video Asset:</div><p style="color:var(--text-muted);margin:4px 0">Not generated / unavailable (Processing...)</p>`;
    }
    if(p.voiceover_script && p.voiceover_script.script_text){
     html+=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
      <span>Voice-over Script:</span>
-     <button onclick="copyText(this, \`${escapeJs(p.voiceover_script.script_text)}\`)" style="width:auto;padding:2px 8px;font-size:11px">Copy Script</button>
+     <button onclick="copyText(this, \`${escapeJs(p.voiceover_script.script_text)}\`)" style="width:auto;padding:4px 10px;font-size:11px;box-shadow:none">Copy Script</button>
     </div><pre>${escapeHtml(p.voiceover_script.script_text)}</pre>`;
    }
    if(p.captions && p.captions.length){
     html+=`<div class="section-title">Captions & Hashtags:</div>`;
     for(const c of p.captions){
      const tagStr = (c.hashtags||[]).join(' ');
-     html+=`<div style="background:#151515;padding:8px;margin-top:4px;border-radius:4px">
+     html+=`<div style="background:#0f172a;padding:12px;margin-top:8px;border-radius:10px;border:1px solid var(--card-border)">
       <div style="display:flex;justify-content:space-between;align-items:center">
        <span class="badge badge-muted">${escapeHtml(c.platform)}</span>
        <div>
-        <button onclick="copyText(this, \`${escapeJs(c.caption)}\`)" style="width:auto;padding:2px 6px;font-size:11px;margin-right:4px">Copy Caption</button>
-        <button onclick="copyText(this, \`${escapeJs(tagStr)}\`)" style="width:auto;padding:2px 6px;font-size:11px">Copy Hashtags</button>
+        <button onclick="copyText(this, \`${escapeJs(c.caption)}\`)" style="width:auto;padding:4px 8px;font-size:11px;margin-right:4px;box-shadow:none">Copy Caption</button>
+        <button onclick="copyText(this, \`${escapeJs(tagStr)}\`)" style="width:auto;padding:4px 8px;font-size:11px;box-shadow:none">Copy Hashtags</button>
        </div>
       </div>
-      <p style="margin:6px 0">${escapeHtml(c.caption)}</p>
-      <p style="color:#4fc3f7;font-size:13px;margin:4px 0">${escapeHtml(tagStr)}</p>
+      <p style="margin:8px 0;color:var(--text-bright)">${escapeHtml(c.caption)}</p>
+      <p style="color:#60a5fa;font-size:13px;margin:4px 0">${escapeHtml(tagStr)}</p>
      </div>`;
     }
    }
    html+=`</div>`;
   }
   container.innerHTML=html;
+  return hasTerminal;
  }catch(e){
   container.innerHTML='Error loading mission posts: '+e.message;
+  return false;
  }
 }
 
@@ -410,24 +720,81 @@ async function loadMissionActivity(missionId){
   const data = await res.json();
   const stages = data.stages || [];
   const actContainer = document.getElementById('activity-stages-container');
-  if(!actContainer) return;
+  if(!actContainer) return true;
+
   if(!stages.length){
-   actContainer.innerHTML = '<p style="color:#aaa;font-size:13px">No activity stages recorded yet.</p>';
-   return;
+   actContainer.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Initializing mission pipeline...</p>';
+   return false;
   }
-  let html = '<div style="margin-top:10px">';
+
+  const startTime = new Date(stages[0].timestamp);
+  const lastTime = new Date(stages[stages.length - 1].timestamp);
+  let durationSec = Math.floor((lastTime - startTime) / 1000);
+  if(isNaN(durationSec) || durationSec < 0) durationSec = 0;
+  const durationStr = durationSec < 60 ? durationSec + 's' : Math.floor(durationSec / 60) + 'm ' + (durationSec % 60) + 's';
+
+  const latestStage = stages[stages.length - 1];
+  const activeStageName = latestStage ? latestStage.stage_name : "Sedang diproses";
+  const hasFailed = stages.some(s => s.status === 'FAILED');
+  const hasCompletedAll = stages.some(s => s.stage_name && s.stage_name.includes('Content Package Creation') && s.status === 'COMPLETED');
+  const isTerminal = hasFailed || hasCompletedAll;
+
+  const bannerTitle = document.getElementById('progress-status-title');
+  const bannerStage = document.getElementById('progress-active-stage');
+  const bannerBar = document.getElementById('progress-bar-fill');
+  const bannerStarted = document.getElementById('progress-time-started');
+  const bannerDuration = document.getElementById('progress-duration');
+  const bannerBadge = document.getElementById('progress-badge-container');
+  const bannerSpinner = document.getElementById('progress-spinner-container');
+
+  if(bannerTitle) {
+   if(hasFailed) {
+    bannerTitle.textContent = "Mission Failed / Errors Present";
+    if(bannerBadge) bannerBadge.innerHTML = '<span class="badge FAILED">Failed</span>';
+    if(bannerSpinner) bannerSpinner.innerHTML = '';
+   } else if(hasCompletedAll || isTerminal) {
+    bannerTitle.textContent = "Mission Completed Successfully";
+    if(bannerBadge) bannerBadge.innerHTML = '<span class="badge COMPLETED">Completed</span>';
+    if(bannerSpinner) bannerSpinner.innerHTML = '';
+   } else {
+    bannerTitle.textContent = "Processing Mission...";
+    if(bannerBadge) bannerBadge.innerHTML = '<span class="badge PROCESSING">In Progress</span>';
+    if(bannerSpinner) bannerSpinner.innerHTML = '<span class="spinner"></span>';
+   }
+  }
+  if(bannerStage) bannerStage.textContent = "Current Stage: " + activeStageName;
+  if(bannerBar) {
+   const pct = Math.min(100, Math.max(10, Math.round((stages.length / 9) * 100)));
+   bannerBar.style.width = (hasCompletedAll ? 100 : pct) + '%';
+   if(hasFailed) bannerBar.style.background = '#f87171';
+   else if(hasCompletedAll) bannerBar.style.background = '#34d399';
+   else bannerBar.style.background = 'var(--accent)';
+  }
+  if(bannerStarted) bannerStarted.textContent = "Started: " + startTime.toLocaleTimeString();
+  if(bannerDuration) bannerDuration.textContent = "Duration: " + durationStr;
+
+  let summaryHeader = `<div style="margin-bottom:12px;padding:8px 12px;background:#182238;border-radius:8px;font-size:13px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px">
+   <div><span style="color:var(--text-muted)">Started:</span> ${startTime.toLocaleTimeString()}</div>
+   <div><span style="color:var(--text-muted)">Duration:</span> ${durationStr}</div>
+   <div><span style="color:var(--text-muted)">Total Stages:</span> ${stages.length}</div>
+  </div>`;
+
+  let html = summaryHeader + '<div style="margin-top:10px">';
   for(const s of stages){
-   const stClass = s.status === 'COMPLETED' ? 'COMPLETED' : 'FAILED';
-   html += `<div style="background:#151515;border:1px solid #333;padding:8px;margin:6px 0;border-radius:6px;display:flex;justify-content:space-between;align-items:center">
-    <div><strong>${escapeHtml(s.stage_name)}</strong><br><small style="color:#aaa">${escapeHtml(s.message || '')}</small></div>
-    <div><span class="badge ${stClass}">${escapeHtml(s.status)}</span><br><small style="color:#888;font-size:10px">${escapeHtml(s.timestamp || '')}</small></div>
+   const stClass = s.status === 'COMPLETED' ? 'COMPLETED' : (s.status === 'FAILED' ? 'FAILED' : 'PROCESSING');
+   html += `<div style="background:#131b2e;border:1px solid var(--card-border);padding:10px 14px;margin:8px 0;border-radius:10px;display:flex;justify-content:space-between;align-items:center">
+    <div><strong style="color:var(--text-bright)">${escapeHtml(s.stage_name)}</strong><br><small style="color:var(--text)">${escapeHtml(s.message || '')}</small></div>
+    <div style="text-align:right"><span class="badge ${stClass}">${escapeHtml(s.status)}</span><br><small style="color:var(--text-muted);font-size:11px">${escapeHtml(s.timestamp ? new Date(s.timestamp).toLocaleTimeString() : '')}</small></div>
    </div>`;
   }
   html += '</div>';
   actContainer.innerHTML = html;
+
+  return isTerminal;
  }catch(e){
   const actContainer = document.getElementById('activity-stages-container');
   if(actContainer) actContainer.textContent = 'Error loading activity log: ' + e.message;
+  return false;
  }
 }
 
@@ -436,8 +803,8 @@ async function copyText(btn, text){
   await navigator.clipboard.writeText(text);
   const orig=btn.textContent;
   btn.textContent='Copied!';
-  btn.style.background='#1b5e20';
-  setTimeout(()=>{btn.textContent=orig;btn.style.background='#0066cc';},1500);
+  btn.style.background='#065f46';
+  setTimeout(()=>{btn.textContent=orig;btn.style.background='var(--accent)';},1500);
  }catch(e){
   alert('Copy failed: '+e);
  }
@@ -460,23 +827,23 @@ document.getElementById('form').onsubmit=async e=>{
  submitBtn.disabled = true;
  submitBtn.textContent = 'Processing Mission...';
  resultBox.style.display = 'block';
- resultBox.innerHTML = '<p style="color:#ffb74d">Mission submitted. Processing in background...</p>';
+ resultBox.innerHTML = '<p style="color:#fbbf24;margin:0">Mission submitted. Processing in background...</p>';
 
  try{
   const res=await fetch('/api/missions',{method:'POST',body:new FormData(e.target)});
   const json=await res.json();
   if(res.ok){
-   resultBox.innerHTML = `<p style="color:#81c784">Mission started successfully!</p><pre>${escapeHtml(JSON.stringify(json,null,2))}</pre>`;
+   resultBox.innerHTML = `<p style="color:#34d399;margin-bottom:8px">Mission started successfully!</p><pre>${escapeHtml(JSON.stringify(json,null,2))}</pre>`;
    loadMissions();
    setTimeout(()=>{
     switchTab('missions');
     if(json.mission_id){loadMissionDetail(json.mission_id);}
    }, 1500);
   }else{
-   resultBox.innerHTML = `<p style="color:#ff8a80">Error: ${escapeHtml(json.detail || 'Failed to start mission')}</p>`;
+   resultBox.innerHTML = `<p style="color:#f87171;margin:0">Error: ${escapeHtml(json.detail || 'Failed to start mission')}</p>`;
   }
  }catch(err){
-  resultBox.innerHTML = `<p style="color:#ff8a80">Request failed: ${escapeHtml(err.message)}</p>`;
+  resultBox.innerHTML = `<p style="color:#f87171;margin:0">Request failed: ${escapeHtml(err.message)}</p>`;
  }finally{
   submitBtn.disabled = false;
   submitBtn.textContent = 'Start Processing';
@@ -655,10 +1022,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         for job_id, job_status in state.items():
             if job_id not in seen_ids:
+                err_msg = "Job recorded in checkpoint without content package metadata."
+                if str(job_status).upper() == "PROCESSING":
+                    err_msg = "Job is currently processing (video rendering / asset generation in progress)..."
+                elif str(job_status).upper() == "PENDING":
+                    err_msg = "Job is pending execution."
+                elif str(job_status).upper() == "FAILED":
+                    err_msg = "Job failed during execution."
                 posts.append({
                     "image_id": job_id,
                     "status": job_status,
-                    "error": "Job recorded in checkpoint without content package metadata."
+                    "error": err_msg
                 })
 
         # Keep failed jobs visible alongside completed jobs so errors remain diagnosable.
@@ -705,6 +1079,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             mission_path.write_text(json.dumps(mission_dict, indent=2), encoding="utf-8")
             input_source = mission_ctx.image_source_url
 
+            def log_worker_failure(err):
+                try:
+                    log_path = output_root / mission_id / "activity_log.json"
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    data = {"mission_id": mission_id, "stages": []}
+                    if log_path.exists():
+                        try:
+                            data = json.loads(log_path.read_text(encoding="utf-8"))
+                        except (OSError, ValueError):
+                            pass
+                    stages = data.get("stages", [])
+                    has_terminal = any(s.get("status") in ("COMPLETED", "FAILED") for s in stages if "Initialization" not in s.get("stage_name", ""))
+                    if not has_terminal:
+                        err_msg = f"{type(err).__name__}: {err}"
+                        stages.append({
+                            "stage_name": "Pipeline Execution",
+                            "status": "FAILED",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "message": err_msg
+                        })
+                        data["stages"] = stages
+                        log_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                except Exception as log_err:
+                    logger.debug(f"Failed to log worker failure stage: {log_err}")
+
             def worker():
                 try:
                     MissionRunner(config, progress=lambda _: None).run(
@@ -712,6 +1111,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     )
                 except Exception as e:
                     logger.error(f"MissionRunner processing failed for mission {mission_id}: {type(e).__name__}: {e}")
+                    log_worker_failure(e)
 
             threading.Thread(target=worker, daemon=True).start()
             return {"status": "started", "mission_id": mission_id}
@@ -749,6 +1149,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     )
                 except Exception as e:
                     logger.error(f"MissionRunner processing failed for mission {mission_id}: {type(e).__name__}: {e}")
+                    log_worker_failure(e)
 
             threading.Thread(target=worker, daemon=True).start()
             return {"status": "started", "mission_id": mission_id}

@@ -145,8 +145,13 @@ def drive_check(url):
     """Check a mission Drive URL without running the full mission pipeline."""
     try:
         from mission_ai.sources.google_drive import GoogleDriveFolderResolver
+        cfg = load_config()
         resolver = GoogleDriveFolderResolver(
-            download_dir=Path(load_config().output_directory) / "_drive_check"
+            download_dir=Path(cfg.output_directory) / "_drive_check",
+            access_token=getattr(cfg, "google_drive_access_token", None),
+            api_key=getattr(cfg, "google_drive_api_key", None),
+            credentials_path=getattr(cfg, "google_drive_service_account_file", None),
+            oauth_token_path=getattr(cfg, "google_drive_oauth_token_file", None),
         )
         folder_id = resolver._extract_folder_id(url)
         files = resolver._list_files_in_folder(folder_id)

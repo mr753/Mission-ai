@@ -95,6 +95,17 @@ class GoogleDriveFolderResolver:
             client_secret = data.get("client_secret")
             expires_at = float(data.get("expires_at", 0) or 0)
 
+            if not client_id or not client_secret:
+                client_path = Path.home() / ".config" / "mission-ai" / "google-drive-client.json"
+                if client_path.exists():
+                    try:
+                        client_data = json.loads(client_path.read_text())
+                        cfg = client_data.get("installed") or client_data.get("web") or {}
+                        client_id = client_id or cfg.get("client_id")
+                        client_secret = client_secret or cfg.get("client_secret")
+                    except Exception:
+                        pass
+
             if access_token and expires_at > time.time() + 60:
                 self._access_token = access_token
                 logger.debug("Using saved Google user OAuth credentials")
@@ -113,14 +124,44 @@ class GoogleDriveFolderResolver:
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                     method="POST",
                 )
-                with urllib.request.urlopen(request, timeout=30) as response:
-                    refreshed = json.loads(response.read().decode("utf-8"))
+                try:
+                    with urllib.request.urlopen(request, timeout=30) as response:
+                        resp_bytes = response.read()
+                        try:
+                            refreshed = json.loads(resp_bytes.decode("utf-8"))
+                        except (ValueError, json.JSONDecodeError) as je:
+                            logger.warning("Google OAuth refresh returned invalid non-JSON response.")
+                            return False
+                except urllib.error.HTTPError as he:
+                    try:
+                        err_body = he.read().decode("utf-8", errors="replace")
+                        err_json = json.loads(err_body)
+                        err_code = err_json.get("error", "unknown_error")
+                        err_desc = err_json.get("error_description", err_body)
+                        err_msg = f"{err_code}: {err_desc}"
+                    except Exception:
+                        err_msg = he.reason if hasattr(he, "reason") else str(he)
+
+                    if "invalid_grant" in err_msg.lower():
+                        logger.warning("Saved Google OAuth refresh token is invalid or revoked. Please run 'mission-ai drive-auth' to re-authenticate.")
+                    else:
+                        logger.warning("Saved Google OAuth refresh failed (HTTP %s): %s", he.code, err_msg)
+                    return False
+                except urllib.error.URLError as ue:
+                    logger.warning("Saved Google OAuth network error during refresh: %s", ue.reason)
+                    return False
+
                 new_token = refreshed.get("access_token")
                 if not new_token:
-                    raise RuntimeError("Google OAuth refresh did not return an access_token.")
+                    logger.warning("Google OAuth refresh did not return an access_token.")
+                    return False
                 expires_in = int(refreshed.get("expires_in", 3600))
                 data["token"] = new_token
                 data["expires_at"] = time.time() + expires_in
+                if not data.get("client_id") and client_id:
+                    data["client_id"] = client_id
+                if not data.get("client_secret") and client_secret:
+                    data["client_secret"] = client_secret
                 self._write_secure_token_file(token_path, json.dumps(data, indent=2))
                 self._access_token = new_token
                 logger.debug("Refreshed Google user OAuth credentials")
@@ -517,4 +558,3 @@ def authorize_user_drive(client_secrets_path: str, token_path: str) -> Path:
         target, json.dumps(credential_data, indent=2)
     )
     return target
-

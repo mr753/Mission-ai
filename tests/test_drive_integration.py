@@ -371,3 +371,173 @@ def test_resolve_preserves_drive_resource_key(tmp_path):
             resolver.resolve(url)
 
     assert resolver._resource_key_header == "test123/resource123"
+
+
+def test_runner_passes_config_credentials_to_resolver(tmp_path):
+    cfg = make_config(tmp_path)
+    cfg.google_drive_access_token = "config-token-xyz"
+    mission_file = write_mission(tmp_path / "mission.json", mission_id="DRV-CFG-1")
+    runner = MissionRunner(cfg, provider=FakeProvider(), video_generator=fake_video_gen, progress=lambda m: None)
+
+    img = tmp_path / "img.png"
+    Image.new("RGB", (16, 16), color="red").save(img)
+
+    with patch("mission_ai.sources.google_drive.GoogleDriveFolderResolver.resolve", return_value=[img]) as mock_resolve, \
+         patch("mission_ai.sources.google_drive.GoogleDriveFolderResolver.__init__", return_value=None) as mock_init:
+        # Mock resolve execution while checking init args or mocking instance
+        pass
+
+    # Direct test of runner instantiating resolver with config credentials
+    with patch("mission_ai.sources.google_drive.GoogleDriveFolderResolver.resolve", return_value=[img]) as mock_resolve:
+        with patch("mission_ai.sources.google_drive.GoogleDriveFolderResolver.__init__", return_value=None) as mock_init_spy:
+            # Let's test by subclassing or checking kwargs passed to GoogleDriveFolderResolver
+            pass
+
+    # Alternatively, patch GoogleDriveFolderResolver init and check arguments
+    class SpyResolver:
+        def __init__(self, *args, **kwargs):
+            SpyResolver.kwargs = kwargs
+        def resolve(self, url):
+            return [img]
+
+    with patch("mission_ai.sources.google_drive.GoogleDriveFolderResolver", SpyResolver):
+        summary = runner.run(str(mission_file), DRIVE_URL, str(cfg.output_directory))
+        assert summary.completed == 1
+        assert SpyResolver.kwargs.get("access_token") == "config-token-xyz"
+
+
+def test_saved_oauth_token_supported_by_runner(tmp_path):
+    token_file = tmp_path / "token.json"
+    token_file.write_text(json.dumps({"token": "oauth-saved-token", "expires_at": 9999999999}))
+
+    cfg = make_config(tmp_path)
+    cfg.google_drive_oauth_token_file = str(token_file)
+    mission_file = write_mission(tmp_path / "mission.json", mission_id="DRV-OAUTH-1")
+    runner = MissionRunner(cfg, provider=FakeProvider(), video_generator=fake_video_gen, progress=lambda m: None)
+
+    img = tmp_path / "img.png"
+    Image.new("RGB", (16, 16), color="red").save(img)
+
+    class SpyResolverOAuth:
+        def __init__(self, *args, **kwargs):
+            SpyResolverOAuth.kwargs = kwargs
+        def resolve(self, url):
+            return [img]
+
+    with patch("mission_ai.sources.google_drive.GoogleDriveFolderResolver", SpyResolverOAuth):
+        summary = runner.run(str(mission_file), DRIVE_URL, str(cfg.output_directory))
+        assert summary.completed == 1
+        assert SpyResolverOAuth.kwargs.get("oauth_token_path") == str(token_file)
+
+
+def test_runner_missing_auth_raises_value_error(tmp_path):
+    cfg = make_config(tmp_path)
+    mission_file = write_mission(tmp_path / "mission.json", mission_id="DRV-NOAUTH")
+    runner = MissionRunner(cfg, provider=FakeProvider(), video_generator=fake_video_gen, progress=lambda m: None)
+
+    with patch.dict(os.environ, {}, clear=True):
+        cfg.google_drive_access_token = None
+        cfg.google_drive_api_key = None
+        cfg.google_drive_service_account_file = None
+        cfg.google_drive_oauth_token_file = str(tmp_path / "nonexistent-token.json")
+
+        with pytest.raises(ValueError, match="Google Drive authentication required"):
+            runner.run(str(mission_file), DRIVE_URL, str(cfg.output_directory))
+
+
+def test_oauth_refresh_success(tmp_path):
+    token_file = tmp_path / "token.json"
+    token_file.write_text(json.dumps({
+        "token": "expired-token",
+        "refresh_token": "valid-refresh",
+        "client_id": "test-client",
+        "client_secret": "test-secret",
+        "expires_at": 100  # expired
+    }))
+
+    resolver = GoogleDriveFolderResolver(
+        download_dir=tmp_path / "drive",
+        oauth_token_path=str(token_file)
+    )
+
+    class _FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self): return b'{"access_token": "new-refreshed-token", "expires_in": 3600}'
+
+    with patch("urllib.request.urlopen", return_value=_FakeResp()):
+        assert resolver._load_user_oauth_credentials() is True
+        assert resolver._access_token == "new-refreshed-token"
+
+
+def test_oauth_refresh_invalid_grant(tmp_path):
+    token_file = tmp_path / "token.json"
+    token_file.write_text(json.dumps({
+        "token": "expired-token",
+        "refresh_token": "revoked-refresh",
+        "client_id": "test-client",
+        "client_secret": "test-secret",
+        "expires_at": 100
+    }))
+
+    resolver = GoogleDriveFolderResolver(
+        download_dir=tmp_path / "drive",
+        oauth_token_path=str(token_file)
+    )
+
+    err = urllib.error.HTTPError(
+        url="https://oauth2.googleapis.com/token",
+        code=400,
+        msg="Bad Request",
+        hdrs={},
+        fp=io.BytesIO(b'{"error": "invalid_grant", "error_description": "Token has been expired or revoked."}')
+    )
+
+    with patch("urllib.request.urlopen", side_effect=err):
+        assert resolver._load_user_oauth_credentials() is False
+        assert resolver._access_token is None
+
+
+def test_oauth_refresh_url_error(tmp_path):
+    token_file = tmp_path / "token.json"
+    token_file.write_text(json.dumps({
+        "token": "expired-token",
+        "refresh_token": "refresh-token",
+        "client_id": "test-client",
+        "client_secret": "test-secret",
+        "expires_at": 100
+    }))
+
+    resolver = GoogleDriveFolderResolver(
+        download_dir=tmp_path / "drive",
+        oauth_token_path=str(token_file)
+    )
+
+    url_err = urllib.error.URLError("Network unreachable")
+
+    with patch("urllib.request.urlopen", side_effect=url_err):
+        assert resolver._load_user_oauth_credentials() is False
+
+
+def test_oauth_refresh_non_json_response(tmp_path):
+    token_file = tmp_path / "token.json"
+    token_file.write_text(json.dumps({
+        "token": "expired-token",
+        "refresh_token": "refresh-token",
+        "client_id": "test-client",
+        "client_secret": "test-secret",
+        "expires_at": 100
+    }))
+
+    resolver = GoogleDriveFolderResolver(
+        download_dir=tmp_path / "drive",
+        oauth_token_path=str(token_file)
+    )
+
+    class _FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self): return b'Not JSON gateway error'
+
+    with patch("urllib.request.urlopen", return_value=_FakeResp()):
+        assert resolver._load_user_oauth_credentials() is False

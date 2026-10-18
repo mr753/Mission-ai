@@ -216,3 +216,47 @@ def test_mission_activity_log(client, app_config):
     assert data["stages"][0]["stage_name"] == "Mission Initialization"
     import shutil
     shutil.rmtree(mission_dir)
+
+
+def test_dashboard_processing_job_without_metadata(client, app_config):
+    mission_id = "MISSION-PROC-TEST"
+    mission_dir = Path(app_config.output_directory) / mission_id
+    mission_dir.mkdir(parents=True, exist_ok=True)
+    (mission_dir / "checkpoint.json").write_text('{"job_active": "PROCESSING"}')
+
+    resp = client.get(f"/api/missions/{mission_id}/posts")
+    assert resp.status_code == 200
+    posts = resp.json()["posts"]
+    assert len(posts) == 1
+    assert posts[0]["image_id"] == "job_active"
+    assert posts[0]["status"] == "PROCESSING"
+    assert "currently processing" in posts[0]["error"].lower()
+
+    import shutil
+    shutil.rmtree(mission_dir)
+
+
+def test_dashboard_worker_failure_logs_failed_stage(client, app_config):
+    mission_id = "MISSION-FAIL-TEST"
+    mission_dir = Path(app_config.output_directory) / mission_id
+    mission_dir.mkdir(parents=True, exist_ok=True)
+
+    log_path = mission_dir / "activity_log.json"
+    log_path.write_text(json.dumps({
+        "mission_id": mission_id,
+        "stages": [
+            {"stage_name": "Mission Initialization", "status": "COMPLETED", "timestamp": "2026-10-15T00:00:00Z", "message": "parsed"},
+            {"stage_name": "Pipeline Execution", "status": "FAILED", "timestamp": "2026-10-15T00:00:01Z", "message": "PipelineError: Input path does not exist"}
+        ]
+    }))
+
+    resp = client.get(f"/api/missions/{mission_id}/activity")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mission_id"] == mission_id
+    assert len(data["stages"]) == 2
+    assert data["stages"][1]["status"] == "FAILED"
+    assert "PipelineError" in data["stages"][1]["message"]
+
+    import shutil
+    shutil.rmtree(mission_dir)
