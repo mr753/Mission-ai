@@ -1,3 +1,4 @@
+import os
 import json
 import pytest
 from pathlib import Path
@@ -274,3 +275,120 @@ def test_e2e_simulation_pipeline_and_report(tmp_path):
     assert meta_file.exists()
     assert meta_file.stat().st_mtime == meta_mtime_before
     assert video_path.exists()
+
+
+def test_idempotent_resume_skips_successful_uploads(tmp_path):
+    mission_id = "MISSION-IDEMPOTENT"
+    output_mgr = OutputManager(tmp_path, mission_id)
+    video_path = output_mgr.videos_dir / "vid.mp4"
+    video_path.write_bytes(b"video content")
+
+    package = ContentPackage(
+        image_id="img1",
+        source_path=str(video_path),
+        analysis=ImageAnalysis(summary="sum", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="instagram", caption="cap", hashtags=[])],
+        status=JobStatus.COMPLETED,
+        video_path=str(video_path)
+    )
+
+    worker = UploadWorker(output_dir=tmp_path)
+    # First run
+    batch1 = worker.process_package(mission_id, package, ["instagram"])
+    assert batch1.simulated_count == 1
+
+    # Second run (resume / duplicate dispatch)
+    batch2 = worker.process_package(mission_id, package, ["instagram"])
+    assert batch2.simulated_count == 1
+    assert batch2.results[0].status == batch1.results[0].status
+    assert batch2.results[0].platform == "instagram"
+
+
+def test_retry_for_failed_uploads(tmp_path):
+    mission_id = "MISSION-RETRY"
+    output_mgr = OutputManager(tmp_path, mission_id)
+    video_path = output_mgr.videos_dir / "vid.mp4"
+    video_path.write_bytes(b"video content")
+
+    # Manually write upload_report.json with a failed status for instagram
+    report_path = output_mgr.base_dir / "upload_report.json"
+    report_data = {
+        "mission_id": mission_id,
+        "results": [
+            {
+                "platform": "instagram",
+                "status": "failed",
+                "error": "Previous network error",
+                "timestamp": "2026-01-01T00:00:00Z"
+            }
+        ],
+        "success_count": 0,
+        "simulated_count": 0,
+        "failure_count": 1,
+        "not_configured_count": 0
+    }
+    report_path.write_text(json.dumps(report_data))
+
+    package = ContentPackage(
+        image_id="img1",
+        source_path=str(video_path),
+        analysis=ImageAnalysis(summary="sum", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="instagram", caption="cap", hashtags=[])],
+        status=JobStatus.COMPLETED,
+        video_path=str(video_path)
+    )
+
+    worker = UploadWorker(output_dir=tmp_path)
+    # Run upload worker again; should retry failed platform
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "false"}):
+        batch = worker.process_package(mission_id, package, ["instagram"])
+
+    assert batch.simulated_count == 1
+    assert batch.failure_count == 0
+    assert batch.results[0].status == "stub_success"
+
+
+def test_stub_success_retries_when_live_upload_enabled(tmp_path):
+    mission_id = "MISSION-STUB-LIVE"
+    output_mgr = OutputManager(tmp_path, mission_id)
+    video_path = output_mgr.videos_dir / "vid.mp4"
+    video_path.write_bytes(b"video content")
+
+    class ConditionalAdapter(BasePlatformAdapter):
+        @property
+        def platform_name(self) -> str:
+            return "cond_platform"
+        def validate_package(self, package):
+            return True
+        def prepare_payload(self, package):
+            return {}
+        def upload(self, package, credentials=None):
+            live = os.getenv("ENABLE_LIVE_UPLOAD", "false").lower() == "true"
+            if not live:
+                return UploadResult(platform=self.platform_name, status="stub_success", message="Stub")
+            else:
+                return UploadResult(platform=self.platform_name, status="success", message="Real live upload")
+
+    register_adapter("cond_platform", ConditionalAdapter)
+
+    package = ContentPackage(
+        image_id="img1",
+        source_path=str(video_path),
+        analysis=ImageAnalysis(summary="sum", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="cond_platform", caption="cap", hashtags=[])],
+        status=JobStatus.COMPLETED,
+        video_path=str(video_path)
+    )
+
+    worker = UploadWorker(output_dir=tmp_path)
+    # First run with live upload disabled -> produces stub_success
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "false"}):
+        batch1 = worker.process_package(mission_id, package, ["cond_platform"])
+    assert batch1.simulated_count == 1
+    assert batch1.success_count == 0
+
+    # Second run with live upload enabled -> should NOT treat stub_success as real upload, should retry and succeed with "success"
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "true"}):
+        batch2 = worker.process_package(mission_id, package, ["cond_platform"])
+    assert batch2.success_count == 1
+    assert batch2.results[0].status == "success"
