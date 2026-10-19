@@ -176,3 +176,210 @@ def test_youtube_adapter_video_empty(tmp_path):
             assert result.status in ("failed", "stub_success", "simulated", "rate_limited", "timeout")
             if result.status == "success":
                 pytest.fail("Empty video should not result in success")
+
+
+def test_youtube_token_still_valid(tmp_path):
+    import time
+    token_file = tmp_path / "token.json"
+    future_exp = time.time() + 3600
+    token_data = {
+        "access_token": "valid_access_token_123",
+        "refresh_token": "refresh_token_abc",
+        "expires_at": future_exp
+    }
+    token_file.write_text(json.dumps(token_data))
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"YOUTUBE_TOKEN_FILE": str(token_file)}):
+        token = adapter._get_access_token()
+        assert token == "valid_access_token_123"
+
+
+def test_youtube_token_refresh_success(tmp_path):
+    import time
+    token_file = tmp_path / "token.json"
+    past_exp = time.time() - 100
+    token_data = {
+        "access_token": "expired_token",
+        "refresh_token": "refresh_token_abc",
+        "client_id": "client_123",
+        "client_secret": "secret_456",
+        "expires_at": past_exp
+    }
+    token_file.write_text(json.dumps(token_data))
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps({
+        "access_token": "new_refreshed_access_token",
+        "expires_in": 3600
+    }).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.__exit__.return_value = False
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"YOUTUBE_TOKEN_FILE": str(token_file)}):
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            token = adapter._get_access_token()
+            assert token == "new_refreshed_access_token"
+
+            # Verify updated token file content
+            updated_data = json.loads(token_file.read_text())
+            assert updated_data["access_token"] == "new_refreshed_access_token"
+            assert "client_secret" not in updated_data  # client_secret must not be stored in token file
+
+
+def test_youtube_token_expired_no_refresh_token(tmp_path):
+    import time
+    token_file = tmp_path / "token.json"
+    past_exp = time.time() - 100
+    token_data = {
+        "access_token": "expired_token",
+        "expires_at": past_exp
+        # No refresh_token
+    }
+    token_file.write_text(json.dumps(token_data))
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"YOUTUBE_TOKEN_FILE": str(token_file)}):
+        token = adapter._get_access_token()
+        # When expired and no refresh token, it should return the old token or None
+        assert token == "expired_token" or token is None
+
+
+def test_youtube_refresh_http_400_401(tmp_path):
+    import time
+    token_file = tmp_path / "token.json"
+    past_exp = time.time() - 100
+    token_data = {
+        "access_token": "expired_token",
+        "refresh_token": "invalid_refresh",
+        "client_id": "client_123",
+        "client_secret": "secret_456",
+        "expires_at": past_exp
+    }
+    token_file.write_text(json.dumps(token_data))
+
+    http_err = urllib.error.HTTPError(
+        url="https://oauth2.googleapis.com/token",
+        code=400,
+        msg="Bad Request",
+        hdrs={},
+        fp=io.BytesIO(b'{"error": "invalid_grant"}')
+    )
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"YOUTUBE_TOKEN_FILE": str(token_file)}):
+        with patch("urllib.request.urlopen", side_effect=http_err):
+            token = adapter._get_access_token()
+            assert token is None
+
+
+def test_youtube_refresh_timeout_and_invalid_json(tmp_path):
+    import time
+    token_file = tmp_path / "token.json"
+    past_exp = time.time() - 100
+    token_data = {
+        "access_token": "expired_token",
+        "refresh_token": "refresh_123",
+        "client_id": "client_123",
+        "client_secret": "secret_456",
+        "expires_at": past_exp
+    }
+    token_file.write_text(json.dumps(token_data))
+
+    adapter = YouTubeShortsAdapter()
+
+    # 1. Timeout test
+    with patch.dict("os.environ", {"YOUTUBE_TOKEN_FILE": str(token_file)}):
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("Timed out")):
+            token = adapter._get_access_token()
+            assert token is None
+
+    # 2. Invalid JSON response test
+    token_file.write_text(json.dumps(token_data))
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = b"not valid json"
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.__exit__.return_value = False
+
+    with patch.dict("os.environ", {"YOUTUBE_TOKEN_FILE": str(token_file)}):
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            token = adapter._get_access_token()
+            assert token is None
+
+
+def test_youtube_expired_token_returns_none(tmp_path):
+    import time
+    token_file = tmp_path / "token.json"
+    past_exp = time.time() - 200
+    token_data = {
+        "access_token": "expired_access_token",
+        "expires_at": past_exp
+        # No refresh_token
+    }
+    token_file.write_text(json.dumps(token_data))
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"YOUTUBE_TOKEN_FILE": str(token_file)}):
+        token = adapter._get_access_token()
+        assert token is None
+
+
+def test_youtube_token_uri_priority(tmp_path):
+    adapter = YouTubeShortsAdapter()
+
+    # 1. Credentials priority over token file and default
+    creds = {"token_uri": "https://custom.cred/token", "client_id": "c1", "client_secret": "s1"}
+    token_data = {"token_uri": "https://custom.file/token"}
+    cid, csec, turi = adapter._get_client_secrets(creds, token_data)
+    assert turi == "https://custom.cred/token"
+
+    # 2. Token file priority over default when no creds token_uri
+    cid, csec, turi = adapter._get_client_secrets(None, token_data)
+    assert turi == "https://custom.file/token"
+
+
+def test_youtube_token_atomic_write_location(tmp_path):
+    token_file = tmp_path / "sub" / "token.json"
+    adapter = YouTubeShortsAdapter()
+    adapter._write_token_atomically(token_file, {"access_token": "new_val"})
+    assert token_file.exists()
+    assert json.loads(token_file.read_text())["access_token"] == "new_val"
+    # Ensure no lingering tmp file in parent directory
+    tmp_files = list(token_file.parent.glob("*.tmp"))
+    assert len(tmp_files) == 0
+
+
+def test_youtube_token_atomic_write_failure(tmp_path):
+    token_file = tmp_path / "token.json"
+    token_file.write_text(json.dumps({"access_token": "old"}))
+
+    adapter = YouTubeShortsAdapter()
+    with patch.object(Path, "replace", side_effect=OSError("Disk write error")):
+        with pytest.raises(RuntimeError, match="Failed to write token file atomically"):
+            adapter._write_token_atomically(token_file, {"access_token": "new"})
+
+        # Verify original token file is intact
+        orig_data = json.loads(token_file.read_text())
+        assert orig_data["access_token"] == "old"
+
+
+def test_youtube_simulation_mode_no_real_upload(tmp_path):
+    video = tmp_path / "vid.mp4"
+    video.write_bytes(b"dummy mp4")
+
+    package = ContentPackage(
+        image_id="job_sim",
+        source_path=str(video),
+        analysis=ImageAnalysis(summary="sim", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="youtube", caption="cap", hashtags=["#shorts"], title="Title")],
+        status=JobStatus.COMPLETED,
+        video_path=str(video)
+    )
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "false"}):
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            result = adapter.upload(package)
+            assert result.status == "stub_success"
+            mock_urlopen.assert_not_called()

@@ -35,20 +35,143 @@ class YouTubeShortsAdapter(BasePlatformAdapter):
             "tags": cap.hashtags if cap else [],
         }
 
+    def _get_client_secrets(self, credentials: Optional[Dict[str, Any]] = None, token_file_data: Optional[Dict[str, Any]] = None) -> tuple[Optional[str], Optional[str], str]:
+        client_id = None
+        client_secret = None
+        token_uri = "https://oauth2.googleapis.com/token"
+
+        # 1. Credentials / config priority
+        if credentials:
+            client_id = credentials.get("client_id")
+            client_secret = credentials.get("client_secret")
+            if credentials.get("token_uri"):
+                token_uri = credentials.get("token_uri")
+
+        # 2. Token file data priority
+        if token_file_data:
+            client_id = client_id or token_file_data.get("client_id")
+            client_secret = client_secret or token_file_data.get("client_secret")
+            if not credentials or not credentials.get("token_uri"):
+                token_uri = token_file_data.get("token_uri", token_uri)
+
+        # 3. Environment variable / Client secret file fallback
+        client_secret_path_str = os.getenv("YOUTUBE_CLIENT_SECRET_FILE")
+        if client_secret_path_str and (not client_id or not client_secret):
+            path = Path(client_secret_path_str).expanduser()
+            if path.exists():
+                try:
+                    cdata = json.loads(path.read_text())
+                    cfg = cdata.get("installed") or cdata.get("web") or cdata
+                    client_id = client_id or cfg.get("client_id")
+                    client_secret = client_secret or cfg.get("client_secret")
+                except Exception:
+                    pass
+
+        env_token_uri = os.getenv("YOUTUBE_TOKEN_URI")
+        if env_token_uri and (not credentials or not credentials.get("token_uri")) and (not token_file_data or not token_file_data.get("token_uri")):
+            token_uri = env_token_uri
+
+        return client_id, client_secret, token_uri
+
     def _get_access_token(self, credentials: Optional[Dict[str, Any]] = None) -> Optional[str]:
         if credentials and credentials.get("access_token"):
             return credentials.get("access_token")
+
         token_path_str = os.getenv("YOUTUBE_TOKEN_FILE")
         if not token_path_str:
             return None
+
         token_path = Path(token_path_str).expanduser()
         if not token_path.exists():
             return None
+
         try:
             data = json.loads(token_path.read_text())
-            return data.get("token") or data.get("access_token")
-        except Exception:
+            access_token = data.get("token") or data.get("access_token")
+            refresh_token = data.get("refresh_token")
+            expires_at = float(data.get("expires_at", 0) or 0)
+
+            # Check if access token is still valid (with 60s buffer)
+            if access_token and expires_at > time.time() + 60:
+                return access_token
+
+            # Access token is expired or missing. Attempt refresh if refresh_token exists.
+            if refresh_token:
+                client_id, client_secret, token_uri = self._get_client_secrets(credentials, data)
+
+                if not client_id or not client_secret:
+                    logger.warning("YouTube OAuth refresh failed: missing client_id or client_secret.")
+                    return None
+
+                payload = urllib.parse.urlencode({
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                }).encode("utf-8")
+
+                req = urllib.request.Request(
+                    token_uri,
+                    data=payload,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        resp_bytes = resp.read()
+                        try:
+                            refreshed = json.loads(resp_bytes.decode("utf-8"))
+                        except (ValueError, json.JSONDecodeError):
+                            logger.warning("YouTube OAuth refresh returned invalid JSON response.")
+                            return None
+                except urllib.error.HTTPError as he:
+                    logger.warning("YouTube OAuth refresh HTTP error status %s", he.code)
+                    return None
+                except (urllib.error.URLError, TimeoutError, socket.timeout) as ue:
+                    logger.warning("YouTube OAuth refresh network error: %s", ue)
+                    return None
+                except Exception as e:
+                    logger.warning("YouTube OAuth refresh unexpected error: %s", e)
+                    return None
+
+                new_token = refreshed.get("access_token")
+                if not new_token:
+                    logger.warning("YouTube OAuth refresh response did not contain access_token.")
+                    return None
+
+                expires_in = int(refreshed.get("expires_in", 3600))
+                data["token"] = new_token
+                data["access_token"] = new_token
+                data["expires_at"] = time.time() + expires_in
+                if refreshed.get("refresh_token"):
+                    data["refresh_token"] = refreshed.get("refresh_token")
+
+                self._write_token_atomically(token_path, data)
+                return new_token
+
+            # Expired and no refresh token available -> NEVER return expired token
+            logger.warning("YouTube OAuth access token expired and no refresh token available.")
             return None
+        except Exception as exc:
+            logger.warning("Failed to load or refresh YouTube OAuth credentials: %s", type(exc).__name__)
+            return None
+
+    @staticmethod
+    def _write_token_atomically(path: Path, data: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data.pop("client_secret", None)
+        content = json.dumps(data, indent=2)
+        tmp_path = path.parent / f"{path.name}.tmp"
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            tmp_path.replace(path)
+        except Exception as e:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+            raise RuntimeError(f"Failed to write token file atomically: {e}") from e
 
     def upload(self, package: ContentPackage, credentials: Optional[Dict[str, Any]] = None) -> UploadResult:
         now_ts = datetime.now(timezone.utc).isoformat()
