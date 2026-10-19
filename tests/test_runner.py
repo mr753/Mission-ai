@@ -325,3 +325,43 @@ def test_missing_input_raises(config, mission_file):
     runner = _make_runner(config, FakeProvider())
     with pytest.raises(PipelineError):
         runner.run(str(mission_file), "does-not-exist", str(config.output_directory))
+
+
+def test_runner_automatically_triggers_upload_worker(config, mission_file, images):
+    img_dir, paths = images
+    runner = _make_runner(config, FakeProvider())
+    summary = runner.run(str(mission_file), str(img_dir), str(config.output_directory))
+    assert summary.completed > 0
+
+    # Verify upload_report.json was automatically created by UploadWorker integration
+    report_path = config.output_directory / "M-TEST" / "upload_report.json"
+    assert report_path.exists()
+
+    report_data = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report_data["mission_id"] == "M-TEST"
+    platforms_in_report = {r["platform"] for r in report_data["results"]}
+    assert {"instagram", "youtube"}.issubset(platforms_in_report)
+    for r in report_data["results"]:
+        assert r["status"] in ("stub_success", "simulated")
+
+
+def test_runner_without_platforms_skips_upload(config, tmp_path, images):
+    data = {
+        "mission_id": "M-NOPLAT",
+        "main_message": "No platforms",
+        "instructions": "Test instructions",
+        "key_points": ["p1"],
+        "platforms": [],
+        "max_hashtags": 5,
+    }
+    mission_path = tmp_path / "mission_nolat.json"
+    mission_path.write_text(json.dumps(data))
+
+    img_dir, paths = images
+    runner = _make_runner(config, FakeProvider())
+    summary = runner.run(str(mission_path), str(img_dir), str(config.output_directory))
+    assert summary.completed > 0
+
+    # Verify upload_report.json was NOT created when platforms list is empty
+    report_path = config.output_directory / "M-NOPLAT" / "upload_report.json"
+    assert not report_path.exists()

@@ -382,6 +382,17 @@ class MissionRunner:
         except Exception as e:
             self._progress(f"StateSink error: {e}")
 
+        # Trigger UploadWorker (simulation/stub by default when ENABLE_LIVE_UPLOAD=false)
+        platforms = mission.platforms or []
+        if platforms:
+            try:
+                from mission_ai.upload import UploadWorker
+                worker = UploadWorker(output_dir=output_root)
+                worker.process_package(mission.mission_id, package, platforms)
+                self._log_stage(mission.mission_id, output_root, f"Upload Dispatch ({job.job_id})", "COMPLETED", f"Upload worker executed for platforms: {platforms}")
+            except Exception as upload_err:
+                self._log_stage(mission.mission_id, output_root, f"Upload Dispatch ({job.job_id})", "FAILED", str(upload_err))
+
     def _discover_images(self, input_path: str) -> List[Path]:
         # Google Drive folder URL: resolve (list + download) via the Drive API.
         if is_google_drive_url(input_path):
