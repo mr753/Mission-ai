@@ -266,40 +266,42 @@ class YouTubeShortsAdapter(BasePlatformAdapter):
                 )
 
         except urllib.error.HTTPError as he:
-            err_body = he.read().decode("utf-8", errors="replace") if he.fp else str(he)
+            logger.warning("YouTube upload HTTP error status %s", he.code)
             if he.code == 429:
                 return UploadResult(
                     platform=self.platform_name,
                     status="rate_limited",
-                    error=f"YouTube API rate limit exceeded (HTTP 429): {err_body}",
+                    error="YouTube API rate limit exceeded (HTTP 429).",
                     timestamp=now_ts
                 )
             elif he.code in (401, 403):
                 return UploadResult(
                     platform=self.platform_name,
                     status="failed",
-                    error=f"YouTube API authentication/authorization failed (HTTP {he.code}): {err_body}",
+                    error=f"YouTube API authentication/authorization failed (HTTP {he.code}).",
                     timestamp=now_ts
                 )
             else:
                 return UploadResult(
                     platform=self.platform_name,
                     status="failed",
-                    error=f"YouTube API HTTP error {he.code}: {err_body}",
+                    error=f"YouTube API HTTP error {he.code}.",
                     timestamp=now_ts
                 )
         except (TimeoutError, urllib.error.URLError, socket.timeout) as te:
+            logger.warning("YouTube upload network error: %s", type(te).__name__)
             return UploadResult(
                 platform=self.platform_name,
                 status="timeout",
-                error=f"YouTube API connection timeout or network error: {te}",
+                error="YouTube API connection timeout or network error.",
                 timestamp=now_ts
             )
         except Exception as e:
+            logger.warning("YouTube upload unexpected error: %s", type(e).__name__)
             return UploadResult(
                 platform=self.platform_name,
                 status="failed",
-                error=f"YouTube upload exception: {e}",
+                error="YouTube upload failed due to an unexpected error.",
                 timestamp=now_ts
             )
 

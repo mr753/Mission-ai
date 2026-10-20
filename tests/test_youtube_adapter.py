@@ -383,3 +383,164 @@ def test_youtube_simulation_mode_no_real_upload(tmp_path):
             result = adapter.upload(package)
             assert result.status == "stub_success"
             mock_urlopen.assert_not_called()
+
+
+def test_youtube_adapter_http_error_sanitizes_secret_response_body(tmp_path):
+    video = tmp_path / "vid.mp4"
+    video.write_bytes(b"dummy mp4")
+
+    package = ContentPackage(
+        image_id="job_sec",
+        source_path=str(video),
+        analysis=ImageAnalysis(summary="sec", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="youtube", caption="cap", hashtags=["#shorts"], title="Title")],
+        status=JobStatus.COMPLETED,
+        video_path=str(video)
+    )
+
+    sensitive_token = "ya29.a0AfH6SMD_super_secret_token_12345"
+    sensitive_secret = "GOCSPX-secret_client_key_999"
+    body_content = f'{{"error": {{"code": 401, "message": "Invalid token: {sensitive_token}", "client_secret": "{sensitive_secret}"}}}}'
+    http_err = urllib.error.HTTPError(
+        url="https://www.googleapis.com/upload/youtube/v3/videos",
+        code=401,
+        msg="Unauthorized",
+        hdrs={},
+        fp=io.BytesIO(body_content.encode("utf-8"))
+    )
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "true"}):
+        with patch("mission_ai.upload.adapters.YouTubeShortsAdapter._get_access_token", return_value="fake_token"):
+            with patch("urllib.request.urlopen", side_effect=http_err):
+                result = adapter.upload(package)
+                assert result.status == "failed"
+                assert result.error is not None
+                assert sensitive_token not in result.error
+                assert sensitive_secret not in result.error
+                assert "Invalid token" not in result.error
+                assert "401" in result.error
+
+
+def test_youtube_adapter_rate_limit_sanitizes_secret_response_body(tmp_path):
+    video = tmp_path / "vid.mp4"
+    video.write_bytes(b"dummy mp4")
+
+    package = ContentPackage(
+        image_id="job_rl_sec",
+        source_path=str(video),
+        analysis=ImageAnalysis(summary="sec", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="youtube", caption="cap", hashtags=["#shorts"], title="Title")],
+        status=JobStatus.COMPLETED,
+        video_path=str(video)
+    )
+
+    secret_quota_id = "secret_project_id_private_999"
+    body_content = f'{{"error": "rateLimitExceeded", "details": "{secret_quota_id}"}}'
+    http_err = urllib.error.HTTPError(
+        url="https://www.googleapis.com/upload/youtube/v3/videos",
+        code=429,
+        msg="Rate Limit Exceeded",
+        hdrs={},
+        fp=io.BytesIO(body_content.encode("utf-8"))
+    )
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "true"}):
+        with patch("mission_ai.upload.adapters.YouTubeShortsAdapter._get_access_token", return_value="fake_token"):
+            with patch("urllib.request.urlopen", side_effect=http_err):
+                result = adapter.upload(package)
+                assert result.status == "rate_limited"
+                assert result.error is not None
+                assert secret_quota_id not in result.error
+                assert "rateLimitExceeded" not in result.error
+                assert "429" in result.error
+
+
+def test_youtube_adapter_server_error_sanitizes_secret_response_body(tmp_path):
+    video = tmp_path / "vid.mp4"
+    video.write_bytes(b"dummy mp4")
+
+    package = ContentPackage(
+        image_id="job_srv_sec",
+        source_path=str(video),
+        analysis=ImageAnalysis(summary="sec", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="youtube", caption="cap", hashtags=["#shorts"], title="Title")],
+        status=JobStatus.COMPLETED,
+        video_path=str(video)
+    )
+
+    secret_db_url = "postgres://root:super_secret_db_pass@internal.db:5432/main"
+    http_err = urllib.error.HTTPError(
+        url="https://www.googleapis.com/upload/youtube/v3/videos",
+        code=500,
+        msg="Internal Server Error",
+        hdrs={},
+        fp=io.BytesIO(secret_db_url.encode("utf-8"))
+    )
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "true"}):
+        with patch("mission_ai.upload.adapters.YouTubeShortsAdapter._get_access_token", return_value="fake_token"):
+            with patch("urllib.request.urlopen", side_effect=http_err):
+                result = adapter.upload(package)
+                assert result.status == "failed"
+                assert result.error is not None
+                assert secret_db_url not in result.error
+                assert "super_secret_db_pass" not in result.error
+                assert "500" in result.error
+
+
+def test_youtube_adapter_url_error_sanitizes_secret_network_exception(tmp_path):
+    video = tmp_path / "vid.mp4"
+    video.write_bytes(b"dummy mp4")
+
+    package = ContentPackage(
+        image_id="job_net_sec",
+        source_path=str(video),
+        analysis=ImageAnalysis(summary="sec", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="youtube", caption="cap", hashtags=["#shorts"], title="Title")],
+        status=JobStatus.COMPLETED,
+        video_path=str(video)
+    )
+
+    sensitive_endpoint = "https://user:ULTRA_SECRET_TOKEN@oauth2.internal.google.com/upload"
+    url_err = urllib.error.URLError(f"Connection refused to {sensitive_endpoint}")
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "true"}):
+        with patch("mission_ai.upload.adapters.YouTubeShortsAdapter._get_access_token", return_value="fake_token"):
+            with patch("urllib.request.urlopen", side_effect=url_err):
+                result = adapter.upload(package)
+                assert result.status == "timeout"
+                assert result.error is not None
+                assert sensitive_endpoint not in result.error
+                assert "ULTRA_SECRET_TOKEN" not in result.error
+                assert "Connection refused" not in result.error
+
+
+def test_youtube_adapter_unexpected_exception_sanitizes_secret(tmp_path):
+    video = tmp_path / "vid.mp4"
+    video.write_bytes(b"dummy mp4")
+
+    package = ContentPackage(
+        image_id="job_exc_sec",
+        source_path=str(video),
+        analysis=ImageAnalysis(summary="sec", visible_subjects=[], visual_context="", relevant_details=[]),
+        captions=[PlatformContent(platform="youtube", caption="cap", hashtags=["#shorts"], title="Title")],
+        status=JobStatus.COMPLETED,
+        video_path=str(video)
+    )
+
+    secret_key = "AIzaSySuperSecretInternalKey12345"
+    exc = RuntimeError(f"Unexpected crash with sensitive token {secret_key}")
+
+    adapter = YouTubeShortsAdapter()
+    with patch.dict("os.environ", {"ENABLE_LIVE_UPLOAD": "true"}):
+        with patch("mission_ai.upload.adapters.YouTubeShortsAdapter._get_access_token", return_value="fake_token"):
+            with patch("urllib.request.urlopen", side_effect=exc):
+                result = adapter.upload(package)
+                assert result.status == "failed"
+                assert result.error is not None
+                assert secret_key not in result.error
+                assert "Unexpected crash" not in result.error
